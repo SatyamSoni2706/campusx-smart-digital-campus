@@ -1,24 +1,17 @@
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, Link } from "@tanstack/react-router";
+import { PageHeader, Panel, Stat, StatusBadge, inputCls } from "@/components/campus/ui";
+import { PublicLayout } from "@/components/campus/PublicLayout";
+import { seo } from "@/lib/seo";
 
-// No head() here: the home route inherits title/description/og/twitter from
-// __root.tsx, and ships no og:image so serve-time hosting can inject the
-// project's social preview (explicit og:image or latest screenshot).
 export const Route = createFileRoute("/")({
-  component: Index,
+  head: () => seo("Smart University Digital Campus", "CampusX unifies timetables, notices, complaints and analytics for students, faculty and admins."),
+  component: PIndex,
 });
 
-// IMPORTANT: Replace this placeholder. See ./README.md for routing conventions.
-function Index() {
+function PIndex() {
   return (
-    <div
-      className="flex min-h-screen items-center justify-center"
-      style={{ backgroundColor: "#fcfbf8" }}
-    >
-      <img
-        data-lovable-blank-page-placeholder="REMOVE_THIS"
-        src="https://cdn.gpteng.co/blank-app-v1.svg"
-        alt="Your app will live here!"
-      />
-    </div>
+    <PublicLayout><main className="mx-auto max-w-6xl px-5 pt-10">
+      <section className="py-16 text-center"><div className="eyebrow">Smart University Digital Campus</div><h1 className="mx-auto mt-3 max-w-3xl text-4xl font-bold md:text-6xl">Your entire campus, in one place.</h1><p className="mx-auto mt-4 max-w-xl text-muted-foreground">Timetables, attendance, notices, events, complaints and an AI assistant — for students, faculty and administrators.</p><div className="mt-8 flex justify-center gap-3"><Link to="/student" className="rounded-lg bg-ink px-5 py-3 text-sm font-semibold text-ink-foreground">Open student demo</Link><Link to="/admin" className="rounded-lg border bg-card px-5 py-3 text-sm font-semibold">Admin demo</Link></div></section><div className="grid gap-3 md:grid-cols-3"><Stat label="Students" value="8,420" /><Stat label="Complaints resolved" value="284" tone="success" hint="avg 2.4 days" /><Stat label="Faculty" value="412" /></div>
+    </main></PublicLayout>
   );
 }
