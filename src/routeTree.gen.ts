@@ -10,33 +10,220 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as AdminRouteImport } from './routes/admin'
+import { Route as FacultyRouteImport } from './routes/faculty'
+import { Route as StudentRouteImport } from './routes/student'
+import { Route as AdminComplaintsRouteImport } from './routes/admin.complaints'
+import { Route as AdminEventsRouteImport } from './routes/admin.events'
+import { Route as AdminLostFoundRouteImport } from './routes/admin.lost-found'
+import { Route as AdminNoticesRouteImport } from './routes/admin.notices'
+import { Route as FacultyIssuesRouteImport } from './routes/faculty.issues'
+import { Route as FacultyNoticesRouteImport } from './routes/faculty.notices'
+import { Route as StudentAssistantRouteImport } from './routes/student.assistant'
+import { Route as StudentComplaintsRouteImport } from './routes/student.complaints'
+import { Route as StudentEventsRouteImport } from './routes/student.events'
+import { Route as StudentLostFoundRouteImport } from './routes/student.lost-found'
+import { Route as StudentNoticesRouteImport } from './routes/student.notices'
+import { Route as StudentTimetableRouteImport } from './routes/student.timetable'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
   getParentRoute: () => rootRouteImport,
 } as any)
+const AdminRoute = AdminRouteImport.update({
+  id: '/admin',
+  path: '/admin',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const FacultyRoute = FacultyRouteImport.update({
+  id: '/faculty',
+  path: '/faculty',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const StudentRoute = StudentRouteImport.update({
+  id: '/student',
+  path: '/student',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AdminComplaintsRoute = AdminComplaintsRouteImport.update({
+  id: '/complaints',
+  path: '/complaints',
+  getParentRoute: () => AdminRoute,
+} as any)
+const AdminEventsRoute = AdminEventsRouteImport.update({
+  id: '/events',
+  path: '/events',
+  getParentRoute: () => AdminRoute,
+} as any)
+const AdminLostFoundRoute = AdminLostFoundRouteImport.update({
+  id: '/lost-found',
+  path: '/lost-found',
+  getParentRoute: () => AdminRoute,
+} as any)
+const AdminNoticesRoute = AdminNoticesRouteImport.update({
+  id: '/notices',
+  path: '/notices',
+  getParentRoute: () => AdminRoute,
+} as any)
+const FacultyIssuesRoute = FacultyIssuesRouteImport.update({
+  id: '/issues',
+  path: '/issues',
+  getParentRoute: () => FacultyRoute,
+} as any)
+const FacultyNoticesRoute = FacultyNoticesRouteImport.update({
+  id: '/notices',
+  path: '/notices',
+  getParentRoute: () => FacultyRoute,
+} as any)
+const StudentAssistantRoute = StudentAssistantRouteImport.update({
+  id: '/assistant',
+  path: '/assistant',
+  getParentRoute: () => StudentRoute,
+} as any)
+const StudentComplaintsRoute = StudentComplaintsRouteImport.update({
+  id: '/complaints',
+  path: '/complaints',
+  getParentRoute: () => StudentRoute,
+} as any)
+const StudentEventsRoute = StudentEventsRouteImport.update({
+  id: '/events',
+  path: '/events',
+  getParentRoute: () => StudentRoute,
+} as any)
+const StudentLostFoundRoute = StudentLostFoundRouteImport.update({
+  id: '/lost-found',
+  path: '/lost-found',
+  getParentRoute: () => StudentRoute,
+} as any)
+const StudentNoticesRoute = StudentNoticesRouteImport.update({
+  id: '/notices',
+  path: '/notices',
+  getParentRoute: () => StudentRoute,
+} as any)
+const StudentTimetableRoute = StudentTimetableRouteImport.update({
+  id: '/timetable',
+  path: '/timetable',
+  getParentRoute: () => StudentRoute,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
+  '/admin': typeof AdminRouteWithChildren
+  '/faculty': typeof FacultyRouteWithChildren
+  '/student': typeof StudentRouteWithChildren
+  '/admin/complaints': typeof AdminComplaintsRoute
+  '/admin/events': typeof AdminEventsRoute
+  '/admin/lost-found': typeof AdminLostFoundRoute
+  '/admin/notices': typeof AdminNoticesRoute
+  '/faculty/issues': typeof FacultyIssuesRoute
+  '/faculty/notices': typeof FacultyNoticesRoute
+  '/student/assistant': typeof StudentAssistantRoute
+  '/student/complaints': typeof StudentComplaintsRoute
+  '/student/events': typeof StudentEventsRoute
+  '/student/lost-found': typeof StudentLostFoundRoute
+  '/student/notices': typeof StudentNoticesRoute
+  '/student/timetable': typeof StudentTimetableRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/admin': typeof AdminRouteWithChildren
+  '/faculty': typeof FacultyRouteWithChildren
+  '/student': typeof StudentRouteWithChildren
+  '/admin/complaints': typeof AdminComplaintsRoute
+  '/admin/events': typeof AdminEventsRoute
+  '/admin/lost-found': typeof AdminLostFoundRoute
+  '/admin/notices': typeof AdminNoticesRoute
+  '/faculty/issues': typeof FacultyIssuesRoute
+  '/faculty/notices': typeof FacultyNoticesRoute
+  '/student/assistant': typeof StudentAssistantRoute
+  '/student/complaints': typeof StudentComplaintsRoute
+  '/student/events': typeof StudentEventsRoute
+  '/student/lost-found': typeof StudentLostFoundRoute
+  '/student/notices': typeof StudentNoticesRoute
+  '/student/timetable': typeof StudentTimetableRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
+  '/admin': typeof AdminRouteWithChildren
+  '/faculty': typeof FacultyRouteWithChildren
+  '/student': typeof StudentRouteWithChildren
+  '/admin/complaints': typeof AdminComplaintsRoute
+  '/admin/events': typeof AdminEventsRoute
+  '/admin/lost-found': typeof AdminLostFoundRoute
+  '/admin/notices': typeof AdminNoticesRoute
+  '/faculty/issues': typeof FacultyIssuesRoute
+  '/faculty/notices': typeof FacultyNoticesRoute
+  '/student/assistant': typeof StudentAssistantRoute
+  '/student/complaints': typeof StudentComplaintsRoute
+  '/student/events': typeof StudentEventsRoute
+  '/student/lost-found': typeof StudentLostFoundRoute
+  '/student/notices': typeof StudentNoticesRoute
+  '/student/timetable': typeof StudentTimetableRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/'
+  fullPaths:
+    | '/'
+    | '/admin'
+    | '/faculty'
+    | '/student'
+    | '/admin/complaints'
+    | '/admin/events'
+    | '/admin/lost-found'
+    | '/admin/notices'
+    | '/faculty/issues'
+    | '/faculty/notices'
+    | '/student/assistant'
+    | '/student/complaints'
+    | '/student/events'
+    | '/student/lost-found'
+    | '/student/notices'
+    | '/student/timetable'
   fileRoutesByTo: FileRoutesByTo
-  to: '/'
-  id: '__root__' | '/'
+  to:
+    | '/'
+    | '/admin'
+    | '/faculty'
+    | '/student'
+    | '/admin/complaints'
+    | '/admin/events'
+    | '/admin/lost-found'
+    | '/admin/notices'
+    | '/faculty/issues'
+    | '/faculty/notices'
+    | '/student/assistant'
+    | '/student/complaints'
+    | '/student/events'
+    | '/student/lost-found'
+    | '/student/notices'
+    | '/student/timetable'
+  id:
+    | '__root__'
+    | '/'
+    | '/admin'
+    | '/faculty'
+    | '/student'
+    | '/admin/complaints'
+    | '/admin/events'
+    | '/admin/lost-found'
+    | '/admin/notices'
+    | '/faculty/issues'
+    | '/faculty/notices'
+    | '/student/assistant'
+    | '/student/complaints'
+    | '/student/events'
+    | '/student/lost-found'
+    | '/student/notices'
+    | '/student/timetable'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
+  AdminRoute: typeof AdminRouteWithChildren
+  FacultyRoute: typeof FacultyRouteWithChildren
+  StudentRoute: typeof StudentRouteWithChildren
 }
 
 declare module '@tanstack/react-router' {
@@ -48,11 +235,169 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof IndexRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/admin': {
+      id: '/admin'
+      path: '/admin'
+      fullPath: '/admin'
+      preLoaderRoute: typeof AdminRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/faculty': {
+      id: '/faculty'
+      path: '/faculty'
+      fullPath: '/faculty'
+      preLoaderRoute: typeof FacultyRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/student': {
+      id: '/student'
+      path: '/student'
+      fullPath: '/student'
+      preLoaderRoute: typeof StudentRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/admin/complaints': {
+      id: '/admin/complaints'
+      path: '/complaints'
+      fullPath: '/admin/complaints'
+      preLoaderRoute: typeof AdminComplaintsRouteImport
+      parentRoute: typeof AdminRoute
+    }
+    '/admin/events': {
+      id: '/admin/events'
+      path: '/events'
+      fullPath: '/admin/events'
+      preLoaderRoute: typeof AdminEventsRouteImport
+      parentRoute: typeof AdminRoute
+    }
+    '/admin/lost-found': {
+      id: '/admin/lost-found'
+      path: '/lost-found'
+      fullPath: '/admin/lost-found'
+      preLoaderRoute: typeof AdminLostFoundRouteImport
+      parentRoute: typeof AdminRoute
+    }
+    '/admin/notices': {
+      id: '/admin/notices'
+      path: '/notices'
+      fullPath: '/admin/notices'
+      preLoaderRoute: typeof AdminNoticesRouteImport
+      parentRoute: typeof AdminRoute
+    }
+    '/faculty/issues': {
+      id: '/faculty/issues'
+      path: '/issues'
+      fullPath: '/faculty/issues'
+      preLoaderRoute: typeof FacultyIssuesRouteImport
+      parentRoute: typeof FacultyRoute
+    }
+    '/faculty/notices': {
+      id: '/faculty/notices'
+      path: '/notices'
+      fullPath: '/faculty/notices'
+      preLoaderRoute: typeof FacultyNoticesRouteImport
+      parentRoute: typeof FacultyRoute
+    }
+    '/student/assistant': {
+      id: '/student/assistant'
+      path: '/assistant'
+      fullPath: '/student/assistant'
+      preLoaderRoute: typeof StudentAssistantRouteImport
+      parentRoute: typeof StudentRoute
+    }
+    '/student/complaints': {
+      id: '/student/complaints'
+      path: '/complaints'
+      fullPath: '/student/complaints'
+      preLoaderRoute: typeof StudentComplaintsRouteImport
+      parentRoute: typeof StudentRoute
+    }
+    '/student/events': {
+      id: '/student/events'
+      path: '/events'
+      fullPath: '/student/events'
+      preLoaderRoute: typeof StudentEventsRouteImport
+      parentRoute: typeof StudentRoute
+    }
+    '/student/lost-found': {
+      id: '/student/lost-found'
+      path: '/lost-found'
+      fullPath: '/student/lost-found'
+      preLoaderRoute: typeof StudentLostFoundRouteImport
+      parentRoute: typeof StudentRoute
+    }
+    '/student/notices': {
+      id: '/student/notices'
+      path: '/notices'
+      fullPath: '/student/notices'
+      preLoaderRoute: typeof StudentNoticesRouteImport
+      parentRoute: typeof StudentRoute
+    }
+    '/student/timetable': {
+      id: '/student/timetable'
+      path: '/timetable'
+      fullPath: '/student/timetable'
+      preLoaderRoute: typeof StudentTimetableRouteImport
+      parentRoute: typeof StudentRoute
+    }
   }
 }
 
+interface AdminRouteChildren {
+  AdminComplaintsRoute: typeof AdminComplaintsRoute
+  AdminEventsRoute: typeof AdminEventsRoute
+  AdminLostFoundRoute: typeof AdminLostFoundRoute
+  AdminNoticesRoute: typeof AdminNoticesRoute
+}
+
+const AdminRouteChildren: AdminRouteChildren = {
+  AdminComplaintsRoute: AdminComplaintsRoute,
+  AdminEventsRoute: AdminEventsRoute,
+  AdminLostFoundRoute: AdminLostFoundRoute,
+  AdminNoticesRoute: AdminNoticesRoute,
+}
+
+const AdminRouteWithChildren = AdminRoute._addFileChildren(AdminRouteChildren)
+
+interface FacultyRouteChildren {
+  FacultyIssuesRoute: typeof FacultyIssuesRoute
+  FacultyNoticesRoute: typeof FacultyNoticesRoute
+}
+
+const FacultyRouteChildren: FacultyRouteChildren = {
+  FacultyIssuesRoute: FacultyIssuesRoute,
+  FacultyNoticesRoute: FacultyNoticesRoute,
+}
+
+const FacultyRouteWithChildren =
+  FacultyRoute._addFileChildren(FacultyRouteChildren)
+
+interface StudentRouteChildren {
+  StudentAssistantRoute: typeof StudentAssistantRoute
+  StudentComplaintsRoute: typeof StudentComplaintsRoute
+  StudentEventsRoute: typeof StudentEventsRoute
+  StudentLostFoundRoute: typeof StudentLostFoundRoute
+  StudentNoticesRoute: typeof StudentNoticesRoute
+  StudentTimetableRoute: typeof StudentTimetableRoute
+}
+
+const StudentRouteChildren: StudentRouteChildren = {
+  StudentAssistantRoute: StudentAssistantRoute,
+  StudentComplaintsRoute: StudentComplaintsRoute,
+  StudentEventsRoute: StudentEventsRoute,
+  StudentLostFoundRoute: StudentLostFoundRoute,
+  StudentNoticesRoute: StudentNoticesRoute,
+  StudentTimetableRoute: StudentTimetableRoute,
+}
+
+const StudentRouteWithChildren =
+  StudentRoute._addFileChildren(StudentRouteChildren)
+
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
+  AdminRoute: AdminRouteWithChildren,
+  FacultyRoute: FacultyRouteWithChildren,
+  StudentRoute: StudentRouteWithChildren,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
