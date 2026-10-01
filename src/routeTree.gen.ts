@@ -19,11 +19,17 @@ import { Route as AdminLostFoundRouteImport } from './routes/admin.lost-found'
 import { Route as AdminNoticesRouteImport } from './routes/admin.notices'
 import { Route as FacultyIssuesRouteImport } from './routes/faculty.issues'
 import { Route as FacultyNoticesRouteImport } from './routes/faculty.notices'
+import { Route as FacultyProfileRouteImport } from './routes/faculty.profile'
+import { Route as StudentIndexRouteImport } from './routes/student.index'
+import { Route as StudentAssignmentsRouteImport } from './routes/student.assignments'
 import { Route as StudentAssistantRouteImport } from './routes/student.assistant'
+import { Route as StudentAttendanceRouteImport } from './routes/student.attendance'
 import { Route as StudentComplaintsRouteImport } from './routes/student.complaints'
 import { Route as StudentEventsRouteImport } from './routes/student.events'
 import { Route as StudentLostFoundRouteImport } from './routes/student.lost-found'
 import { Route as StudentNoticesRouteImport } from './routes/student.notices'
+import { Route as StudentNotificationsRouteImport } from './routes/student.notifications'
+import { Route as StudentProfileRouteImport } from './routes/student.profile'
 import { Route as StudentTimetableRouteImport } from './routes/student.timetable'
 
 const IndexRoute = IndexRouteImport.update({
@@ -76,9 +82,29 @@ const FacultyNoticesRoute = FacultyNoticesRouteImport.update({
   path: '/notices',
   getParentRoute: () => FacultyRoute,
 } as any)
+const FacultyProfileRoute = FacultyProfileRouteImport.update({
+  id: '/profile',
+  path: '/profile',
+  getParentRoute: () => FacultyRoute,
+} as any)
+const StudentIndexRoute = StudentIndexRouteImport.update({
+  id: '/',
+  path: '/',
+  getParentRoute: () => StudentRoute,
+} as any)
+const StudentAssignmentsRoute = StudentAssignmentsRouteImport.update({
+  id: '/assignments',
+  path: '/assignments',
+  getParentRoute: () => StudentRoute,
+} as any)
 const StudentAssistantRoute = StudentAssistantRouteImport.update({
   id: '/assistant',
   path: '/assistant',
+  getParentRoute: () => StudentRoute,
+} as any)
+const StudentAttendanceRoute = StudentAttendanceRouteImport.update({
+  id: '/attendance',
+  path: '/attendance',
   getParentRoute: () => StudentRoute,
 } as any)
 const StudentComplaintsRoute = StudentComplaintsRouteImport.update({
@@ -101,6 +127,16 @@ const StudentNoticesRoute = StudentNoticesRouteImport.update({
   path: '/notices',
   getParentRoute: () => StudentRoute,
 } as any)
+const StudentNotificationsRoute = StudentNotificationsRouteImport.update({
+  id: '/notifications',
+  path: '/notifications',
+  getParentRoute: () => StudentRoute,
+} as any)
+const StudentProfileRoute = StudentProfileRouteImport.update({
+  id: '/profile',
+  path: '/profile',
+  getParentRoute: () => StudentRoute,
+} as any)
 const StudentTimetableRoute = StudentTimetableRouteImport.update({
   id: '/timetable',
   path: '/timetable',
@@ -118,30 +154,41 @@ export interface FileRoutesByFullPath {
   '/admin/notices': typeof AdminNoticesRoute
   '/faculty/issues': typeof FacultyIssuesRoute
   '/faculty/notices': typeof FacultyNoticesRoute
+  '/faculty/profile': typeof FacultyProfileRoute
+  '/student/assignments': typeof StudentAssignmentsRoute
   '/student/assistant': typeof StudentAssistantRoute
+  '/student/attendance': typeof StudentAttendanceRoute
   '/student/complaints': typeof StudentComplaintsRoute
   '/student/events': typeof StudentEventsRoute
   '/student/lost-found': typeof StudentLostFoundRoute
   '/student/notices': typeof StudentNoticesRoute
+  '/student/notifications': typeof StudentNotificationsRoute
+  '/student/profile': typeof StudentProfileRoute
   '/student/timetable': typeof StudentTimetableRoute
+  '/student/': typeof StudentIndexRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/admin': typeof AdminRouteWithChildren
   '/faculty': typeof FacultyRouteWithChildren
-  '/student': typeof StudentRouteWithChildren
   '/admin/complaints': typeof AdminComplaintsRoute
   '/admin/events': typeof AdminEventsRoute
   '/admin/lost-found': typeof AdminLostFoundRoute
   '/admin/notices': typeof AdminNoticesRoute
   '/faculty/issues': typeof FacultyIssuesRoute
   '/faculty/notices': typeof FacultyNoticesRoute
+  '/faculty/profile': typeof FacultyProfileRoute
+  '/student/assignments': typeof StudentAssignmentsRoute
   '/student/assistant': typeof StudentAssistantRoute
+  '/student/attendance': typeof StudentAttendanceRoute
   '/student/complaints': typeof StudentComplaintsRoute
   '/student/events': typeof StudentEventsRoute
   '/student/lost-found': typeof StudentLostFoundRoute
   '/student/notices': typeof StudentNoticesRoute
+  '/student/notifications': typeof StudentNotificationsRoute
+  '/student/profile': typeof StudentProfileRoute
   '/student/timetable': typeof StudentTimetableRoute
+  '/student': typeof StudentIndexRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -155,12 +202,18 @@ export interface FileRoutesById {
   '/admin/notices': typeof AdminNoticesRoute
   '/faculty/issues': typeof FacultyIssuesRoute
   '/faculty/notices': typeof FacultyNoticesRoute
+  '/faculty/profile': typeof FacultyProfileRoute
+  '/student/assignments': typeof StudentAssignmentsRoute
   '/student/assistant': typeof StudentAssistantRoute
+  '/student/attendance': typeof StudentAttendanceRoute
   '/student/complaints': typeof StudentComplaintsRoute
   '/student/events': typeof StudentEventsRoute
   '/student/lost-found': typeof StudentLostFoundRoute
   '/student/notices': typeof StudentNoticesRoute
+  '/student/notifications': typeof StudentNotificationsRoute
+  '/student/profile': typeof StudentProfileRoute
   '/student/timetable': typeof StudentTimetableRoute
+  '/student/': typeof StudentIndexRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -175,30 +228,41 @@ export interface FileRouteTypes {
     | '/admin/notices'
     | '/faculty/issues'
     | '/faculty/notices'
+    | '/faculty/profile'
+    | '/student/assignments'
     | '/student/assistant'
+    | '/student/attendance'
     | '/student/complaints'
     | '/student/events'
     | '/student/lost-found'
     | '/student/notices'
+    | '/student/notifications'
+    | '/student/profile'
     | '/student/timetable'
+    | '/student/'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
     | '/admin'
     | '/faculty'
-    | '/student'
     | '/admin/complaints'
     | '/admin/events'
     | '/admin/lost-found'
     | '/admin/notices'
     | '/faculty/issues'
     | '/faculty/notices'
+    | '/faculty/profile'
+    | '/student/assignments'
     | '/student/assistant'
+    | '/student/attendance'
     | '/student/complaints'
     | '/student/events'
     | '/student/lost-found'
     | '/student/notices'
+    | '/student/notifications'
+    | '/student/profile'
     | '/student/timetable'
+    | '/student'
   id:
     | '__root__'
     | '/'
@@ -211,12 +275,18 @@ export interface FileRouteTypes {
     | '/admin/notices'
     | '/faculty/issues'
     | '/faculty/notices'
+    | '/faculty/profile'
+    | '/student/assignments'
     | '/student/assistant'
+    | '/student/attendance'
     | '/student/complaints'
     | '/student/events'
     | '/student/lost-found'
     | '/student/notices'
+    | '/student/notifications'
+    | '/student/profile'
     | '/student/timetable'
+    | '/student/'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -298,11 +368,39 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof FacultyNoticesRouteImport
       parentRoute: typeof FacultyRoute
     }
+    '/faculty/profile': {
+      id: '/faculty/profile'
+      path: '/profile'
+      fullPath: '/faculty/profile'
+      preLoaderRoute: typeof FacultyProfileRouteImport
+      parentRoute: typeof FacultyRoute
+    }
+    '/student/': {
+      id: '/student/'
+      path: '/'
+      fullPath: '/student/'
+      preLoaderRoute: typeof StudentIndexRouteImport
+      parentRoute: typeof StudentRoute
+    }
+    '/student/assignments': {
+      id: '/student/assignments'
+      path: '/assignments'
+      fullPath: '/student/assignments'
+      preLoaderRoute: typeof StudentAssignmentsRouteImport
+      parentRoute: typeof StudentRoute
+    }
     '/student/assistant': {
       id: '/student/assistant'
       path: '/assistant'
       fullPath: '/student/assistant'
       preLoaderRoute: typeof StudentAssistantRouteImport
+      parentRoute: typeof StudentRoute
+    }
+    '/student/attendance': {
+      id: '/student/attendance'
+      path: '/attendance'
+      fullPath: '/student/attendance'
+      preLoaderRoute: typeof StudentAttendanceRouteImport
       parentRoute: typeof StudentRoute
     }
     '/student/complaints': {
@@ -331,6 +429,20 @@ declare module '@tanstack/react-router' {
       path: '/notices'
       fullPath: '/student/notices'
       preLoaderRoute: typeof StudentNoticesRouteImport
+      parentRoute: typeof StudentRoute
+    }
+    '/student/notifications': {
+      id: '/student/notifications'
+      path: '/notifications'
+      fullPath: '/student/notifications'
+      preLoaderRoute: typeof StudentNotificationsRouteImport
+      parentRoute: typeof StudentRoute
+    }
+    '/student/profile': {
+      id: '/student/profile'
+      path: '/profile'
+      fullPath: '/student/profile'
+      preLoaderRoute: typeof StudentProfileRouteImport
       parentRoute: typeof StudentRoute
     }
     '/student/timetable': {
@@ -362,32 +474,44 @@ const AdminRouteWithChildren = AdminRoute._addFileChildren(AdminRouteChildren)
 interface FacultyRouteChildren {
   FacultyIssuesRoute: typeof FacultyIssuesRoute
   FacultyNoticesRoute: typeof FacultyNoticesRoute
+  FacultyProfileRoute: typeof FacultyProfileRoute
 }
 
 const FacultyRouteChildren: FacultyRouteChildren = {
   FacultyIssuesRoute: FacultyIssuesRoute,
   FacultyNoticesRoute: FacultyNoticesRoute,
+  FacultyProfileRoute: FacultyProfileRoute,
 }
 
 const FacultyRouteWithChildren =
   FacultyRoute._addFileChildren(FacultyRouteChildren)
 
 interface StudentRouteChildren {
+  StudentAssignmentsRoute: typeof StudentAssignmentsRoute
   StudentAssistantRoute: typeof StudentAssistantRoute
+  StudentAttendanceRoute: typeof StudentAttendanceRoute
   StudentComplaintsRoute: typeof StudentComplaintsRoute
   StudentEventsRoute: typeof StudentEventsRoute
   StudentLostFoundRoute: typeof StudentLostFoundRoute
   StudentNoticesRoute: typeof StudentNoticesRoute
+  StudentNotificationsRoute: typeof StudentNotificationsRoute
+  StudentProfileRoute: typeof StudentProfileRoute
   StudentTimetableRoute: typeof StudentTimetableRoute
+  StudentIndexRoute: typeof StudentIndexRoute
 }
 
 const StudentRouteChildren: StudentRouteChildren = {
+  StudentAssignmentsRoute: StudentAssignmentsRoute,
   StudentAssistantRoute: StudentAssistantRoute,
+  StudentAttendanceRoute: StudentAttendanceRoute,
   StudentComplaintsRoute: StudentComplaintsRoute,
   StudentEventsRoute: StudentEventsRoute,
   StudentLostFoundRoute: StudentLostFoundRoute,
   StudentNoticesRoute: StudentNoticesRoute,
+  StudentNotificationsRoute: StudentNotificationsRoute,
+  StudentProfileRoute: StudentProfileRoute,
   StudentTimetableRoute: StudentTimetableRoute,
+  StudentIndexRoute: StudentIndexRoute,
 }
 
 const StudentRouteWithChildren =
