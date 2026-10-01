@@ -1,9 +1,9 @@
-import { Link, Outlet } from "@tanstack/react-router";
+import { Link, Outlet, type LinkProps } from "@tanstack/react-router";
 import { useState, type ComponentType } from "react";
 import { Bell, Menu, Search, X, LogOut } from "lucide-react";
 import { cn } from "@/lib/utils";
 
-export type NavItem = { to: string; label: string; icon: ComponentType<{ className?: string }> };
+export type NavItem = { to: NonNullable<LinkProps["to"]>; label: string; icon: ComponentType<{ className?: string }> };
 
 export function Logo() {
   return (
@@ -14,7 +14,7 @@ export function Logo() {
   );
 }
 
-export function PortalShell({ role, nav, user, notifyTo }: { role: string; nav: NavItem[]; user: { name: string; initials: string; sub: string }; notifyTo?: string }) {
+export function PortalShell({ role, nav, user, notifyTo }: { role: string; nav: NavItem[]; user: { name: string; initials: string; sub: string }; notifyTo?: NonNullable<LinkProps["to"]> }) {
   const [open, setOpen] = useState(false);
   const sidebar = (
     <div className="flex h-full flex-col px-4 py-6">
