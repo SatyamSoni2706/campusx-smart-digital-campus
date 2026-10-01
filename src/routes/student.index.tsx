@@ -31,7 +31,7 @@ function StudentDashboard() {
       <section className="grid grid-cols-2 gap-3 xl:grid-cols-4">
         <Stat label="Attendance" value={`${currentStudent.attendance}%`} hint="▲ 2.1 this month" tone="success" bar={currentStudent.attendance} />
         <Stat label="Today's classes" value={timetable.filter((t) => t.day === today).length} hint={`${today} · first at 09:00`} />
-        <Stat label="Due this week" value={pending.length} hint={`Next · ${fmtDate(pending[0].due)}`} tone="warning" />
+        <Stat label="Due this week" value={pending.length} hint={`Next · ${pending[0] ? fmtDate(pending[0].due) : "—"}`} tone="warning" />
         <Stat label="Open complaints" value={open.length} hint="Avg resolve · 2.4d" />
       </section>
 

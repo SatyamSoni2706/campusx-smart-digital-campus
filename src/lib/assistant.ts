@@ -18,7 +18,9 @@ export async function askAssistant(q: string): Promise<string> {
   if (s.includes("notice")) return "Latest notices:\n" + notices.slice(0, 3).map((n) => `• [${n.priority}] ${n.title}`).join("\n");
   if (s.includes("assignment") || s.includes("due")) {
     const p = assignments.filter((a) => a.status === "Pending");
-    return `You have ${p.length} pending assignments. Next up: **${p[0].title}** (${p[0].subject}), due ${fmtDate(p[0].due)}.`;
+    if (!p[0]) return "You have no pending assignments.";
+    const n = p[0];
+    return `You have ${p.length} pending assignments. Next up: **${n.title}** (${n.subject}), due ${fmtDate(n.due)}.`;
   }
   if (s.includes("event")) return "Events coming up:\n" + events.slice(0, 3).map((e) => `• ${e.title} — ${fmtDate(e.date)}, ${e.venue}`).join("\n");
   if (s.includes("projector") || s.includes("report") || s.includes("broken")) return "You can report it under **Complaints → New complaint**. Choose category *Classroom*, add the room number, and attach a photo if possible. The AV team usually responds within 24 hours.";

@@ -38,7 +38,7 @@ export const timetable: Slot[] = [
 ];
 export function todayKey(): Day {
   const d = new Date().getDay();
-  return d >= 1 && d <= 5 ? days[d - 1] : "Mon";
+  return (d >= 1 && d <= 5 ? days[d - 1] : undefined) ?? "Mon";
 }
 
 export const attendance = [
