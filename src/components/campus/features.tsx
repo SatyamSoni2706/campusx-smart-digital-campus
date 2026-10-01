@@ -29,8 +29,8 @@ export function TodaySchedule({ compact }: { compact?: boolean }) {
             <div className="truncate text-sm font-semibold">{t.subject}</div>
             <div className="font-mono text-[11px] text-muted-foreground">{t.room} · {t.faculty}</div>
           </div>
-          {!compact && <StatusBadge value={t.type === "Lab" ? "Medium" : "Low"} className="hidden sm:inline-flex" />}
-          {i === 0 && <StatusBadge value="Resolved" className="!bg-success-soft" />}
+          {!compact && <span className="hidden rounded-full border px-2 py-0.5 text-[11px] text-muted-foreground sm:inline">{t.type}</span>}
+          {i === 0 && <span className="rounded-full bg-brand-soft px-2.5 py-0.5 text-[11px] font-semibold text-primary">Up next</span>}
         </div>
       ))}
       {list.length === 0 && <EmptyState title="No classes today" />}
