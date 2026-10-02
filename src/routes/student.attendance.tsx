@@ -1,15 +1,25 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { PageHeader, Panel, Stat } from "@/components/campus/ui";
-import { attendance } from "@/data/mock";
+import { EmptyState, PageHeader, Panel, Stat } from "@/components/campus/ui";
 import { seo } from "@/lib/seo";
 import { cn } from "@/lib/utils";
+import { getStudentAttendanceFn } from "@/lib/campus.functions";
 
 export const Route = createFileRoute("/student/attendance")({
   head: () => seo("Attendance", "Subject-wise attendance and shortage alerts."),
+  loader: () => getStudentAttendanceFn(),
   component: AttendancePage,
 });
 
 function AttendancePage() {
+  const attendance = Route.useLoaderData();
+  if (attendance.length === 0) {
+    return (
+      <>
+        <PageHeader eyebrow="Minimum required · 75%" title="Attendance" />
+        <EmptyState title="No attendance records yet" desc="Your attendance will appear here when records are available." />
+      </>
+    );
+  }
   const at = attendance.reduce((s, a) => s + a.attended, 0);
   const tot = attendance.reduce((s, a) => s + a.total, 0);
   const pct = (at / tot) * 100;

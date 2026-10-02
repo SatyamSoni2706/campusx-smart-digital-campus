@@ -37,13 +37,17 @@ function StudentDashboard() {
         </h1>
       </div>
       <section className="grid grid-cols-2 gap-3 xl:grid-cols-4">
-        <Stat
-          label="Attendance"
-          value={`${data.attendance}%`}
-          hint="Current term"
-          tone="success"
-          bar={data.attendance}
-        />
+        {data.attendance === null ? (
+          <Stat label="Attendance" value="—" hint="No records yet" tone="muted" />
+        ) : (
+          <Stat
+            label="Attendance"
+            value={`${data.attendance}%`}
+            hint="Current term"
+            tone="success"
+            bar={data.attendance}
+          />
+        )}
         <Stat
           label="Today's classes"
           value={data.todayClasses}

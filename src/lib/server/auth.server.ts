@@ -157,6 +157,37 @@ export async function registerCampusStudent(data: {
   return { ok: true as const, user };
 }
 
+export async function updateCampusStudentProfile(data: {
+  name: string;
+  email: string;
+  studentId: string;
+}) {
+  const user = await requireCampusUser("Student");
+  const db = getDb();
+  const existing = db
+    .prepare("SELECT id FROM users WHERE (email = ? OR student_id = ?) AND id <> ?")
+    .get(data.email, data.studentId, user.id);
+  if (existing) {
+    return { ok: false as const, error: "That email or student ID is already in use." };
+  }
+
+  try {
+    db.prepare("UPDATE users SET name = ?, email = ?, student_id = ? WHERE id = ?").run(
+      data.name,
+      data.email,
+      data.studentId,
+      user.id,
+    );
+  } catch {
+    return { ok: false as const, error: "Could not save the profile. Check the email and student ID." };
+  }
+
+  return {
+    ok: true as const,
+    user: { ...user, name: data.name, email: data.email, studentId: data.studentId },
+  };
+}
+
 export async function logoutCampusUser() {
   const token = getCookie(SESSION_COOKIE);
   if (token) getDb().prepare("DELETE FROM sessions WHERE id = ?").run(sessionHash(token));

@@ -42,6 +42,67 @@ const noticeSchema = z.object({
   department: z.string().trim().min(2).max(120),
 });
 const noticeUpdateSchema = noticeSchema.extend({ id: z.string().min(2).max(100) });
+const eventSchema = z.object({
+  title: z.string().trim().min(4).max(160),
+  date: z.string().date(),
+  time: z.string().trim().min(2).max(40),
+  venue: z.string().trim().min(2).max(160),
+  organizer: z.string().trim().min(2).max(120),
+  description: z.string().trim().max(2000),
+  seats: z.number().int().min(1).max(100000),
+});
+const eventRegistrationSchema = z.object({
+  eventId: z.string().min(1).max(100),
+  registered: z.boolean(),
+});
+const lostFoundSchema = z.object({
+  kind: z.enum(["Lost", "Found"]),
+  item: z.string().trim().min(2).max(160),
+  category: z.string().trim().min(2).max(80),
+  description: z.string().trim().max(2000),
+  location: z.string().trim().min(2).max(160),
+});
+const lostFoundClaimSchema = z.object({ id: z.string().min(1).max(100) });
+const assignmentSubmissionSchema = z.object({
+  assignmentId: z.string().min(1).max(100),
+  filename: z
+    .string()
+    .trim()
+    .min(1)
+    .max(255)
+    .transform((name) => name.replace(/[\\/]/g, "_").replace(/[\u0000-\u001F\u007F]/g, ""))
+    .refine((name) => name.length > 0, "Choose a valid filename."),
+  mimeType: z.string().max(120).default(""),
+  fileSizeBytes: z.number().int().min(0).max(25 * 1024 * 1024),
+});
+const notificationReadSchema = z.discriminatedUnion("mode", [
+  z.object({ mode: z.literal("one"), id: z.string().min(1).max(100) }),
+  z.object({ mode: z.literal("all") }),
+]);
+
+type EventView = {
+  id: string;
+  title: string;
+  date: string;
+  time: string;
+  venue: string;
+  organizer: string;
+  description: string;
+  category: string;
+  seats: number;
+  registered: number;
+  isRegistered: boolean;
+};
+type LostFoundViewItem = {
+  id: string;
+  kind: "Lost" | "Found";
+  item: string;
+  category: string;
+  description: string;
+  location: string;
+  date: string;
+  status: "Open" | "Claimed";
+};
 
 function complaintHistory(db: import("node:sqlite").DatabaseSync, id: string) {
   return db
@@ -264,6 +325,202 @@ export const updateNoticeFn = createServerFn({ method: "POST" })
     return { ...row, read: Boolean(row.read) };
   });
 
+function eventView(
+  db: import("node:sqlite").DatabaseSync,
+  id: string,
+  userId: string,
+): EventView | undefined {
+  const row = db
+    .prepare(
+      `SELECT e.id, e.title, e.date, e.time, e.venue, e.organizer, e.description, e.category,
+        e.seats, e.registered,
+        EXISTS(SELECT 1 FROM event_registrations r
+          WHERE r.event_id = e.id AND r.user_id = ? AND r.status = 'Registered') AS isRegistered
+      FROM events e WHERE e.id = ?`,
+    )
+    .get(userId, id) as (Omit<EventView, "isRegistered"> & { isRegistered: number }) | undefined;
+  return row ? { ...row, isRegistered: Boolean(row.isRegistered) } : undefined;
+}
+
+export const listEventsFn = createServerFn({ method: "GET" }).handler(async () => {
+  const { requireCampusUser } = await import("./server/auth.server");
+  const { getDb } = await import("./server/db.server");
+  const user = await requireCampusUser();
+  if (user.role !== "Student" && user.role !== "Admin")
+    throw new Error("You do not have access to events.");
+  const db = getDb();
+  const rows = db.prepare("SELECT id FROM events ORDER BY date, title").all() as { id: string }[];
+  return rows.flatMap((row) => {
+    const event = eventView(db, row.id, user.id);
+    return event ? [event] : [];
+  });
+});
+
+export const createEventFn = createServerFn({ method: "POST" })
+  .validator((input: unknown) => eventSchema.parse(input))
+  .handler(async ({ data }) => {
+    const { requireCampusUser } = await import("./server/auth.server");
+    const { getDb } = await import("./server/db.server");
+    const { randomUUID } = await import("node:crypto");
+    const admin = await requireCampusUser("Admin");
+    const db = getDb();
+    const id = randomUUID();
+    db.prepare(
+      `INSERT INTO events (id, title, date, time, venue, organizer, description, category, seats, registered)
+      VALUES (?, ?, ?, ?, ?, ?, ?, 'General', ?, 0)`,
+    ).run(id, data.title, data.date, data.time, data.venue, data.organizer, data.description, data.seats);
+    const event = eventView(db, id, admin.id);
+    if (!event) throw new Error("Could not load the created event.");
+    return event;
+  });
+
+export const setEventRegistrationFn = createServerFn({ method: "POST" })
+  .validator((input: unknown) => eventRegistrationSchema.parse(input))
+  .handler(async ({ data }) => {
+    const { requireCampusUser } = await import("./server/auth.server");
+    const { getDb } = await import("./server/db.server");
+    const { randomUUID } = await import("node:crypto");
+    const user = await requireCampusUser("Student");
+    const db = getDb();
+    db.exec("BEGIN IMMEDIATE");
+    try {
+      const event = db.prepare("SELECT seats, registered FROM events WHERE id = ?").get(data.eventId) as
+        | { seats: number; registered: number }
+        | undefined;
+      if (!event) throw new Error("Event was not found.");
+      const existing = db
+        .prepare("SELECT id, status FROM event_registrations WHERE event_id = ? AND user_id = ?")
+        .get(data.eventId, user.id);
+      const now = new Date().toISOString();
+      if (data.registered && (!existing || (existing as { status: string }).status === "Cancelled")) {
+        if (event.registered >= event.seats) throw new Error("This event is full.");
+        if (existing) {
+          db.prepare(
+            `UPDATE event_registrations SET status = 'Registered', updated_at = ?, cancelled_at = NULL
+            WHERE event_id = ? AND user_id = ?`,
+          ).run(now, data.eventId, user.id);
+        } else {
+        db.prepare(
+            `INSERT INTO event_registrations (id, event_id, user_id, status, created_at, updated_at)
+            VALUES (?, ?, ?, 'Registered', ?, ?)`,
+          ).run(randomUUID(), data.eventId, user.id, now, now);
+        }
+        db.prepare("UPDATE events SET registered = registered + 1 WHERE id = ?").run(data.eventId);
+      } else if (!data.registered && existing && (existing as { status: string }).status === "Registered") {
+        db.prepare(
+          `UPDATE event_registrations SET status = 'Cancelled', updated_at = ?, cancelled_at = ?
+          WHERE event_id = ? AND user_id = ?`,
+        ).run(now, now, data.eventId, user.id);
+        db.prepare("UPDATE events SET registered = MAX(0, registered - 1) WHERE id = ?").run(
+          data.eventId,
+        );
+      }
+      db.exec("COMMIT");
+    } catch (error) {
+      db.exec("ROLLBACK");
+      throw error;
+    }
+    const updated = eventView(db, data.eventId, user.id);
+    if (!updated) throw new Error("Event was not found.");
+    return updated;
+  });
+
+export const listLostFoundFn = createServerFn({ method: "GET" }).handler(async () => {
+  const { requireCampusUser } = await import("./server/auth.server");
+  const { getDb } = await import("./server/db.server");
+  const user = await requireCampusUser();
+  if (user.role !== "Student" && user.role !== "Admin")
+    throw new Error("You do not have access to Lost & Found.");
+  return getDb()
+    .prepare(
+      `SELECT id, kind, item, category, description, location,
+        substr(created_at, 1, 10) AS date, status
+      FROM lost_found_items ORDER BY created_at DESC`,
+    )
+    .all() as LostFoundViewItem[];
+});
+
+export const createLostFoundItemFn = createServerFn({ method: "POST" })
+  .validator((input: unknown) => lostFoundSchema.parse(input))
+  .handler(async ({ data }) => {
+    const { requireCampusUser } = await import("./server/auth.server");
+    const { getDb } = await import("./server/db.server");
+    const { randomUUID } = await import("node:crypto");
+    const user = await requireCampusUser("Student");
+    const db = getDb();
+    const id = randomUUID();
+    const now = new Date().toISOString();
+    db.exec("BEGIN IMMEDIATE");
+    try {
+      db.prepare(
+        `INSERT INTO lost_found_items
+          (id, reporter_user_id, kind, item, category, description, location, status, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, 'Open', ?, ?)`,
+      ).run(id, user.id, data.kind, data.item, data.category, data.description, data.location, now, now);
+      db.prepare(
+        `INSERT INTO lost_found_status_history (id, item_id, actor_user_id, from_status, to_status, created_at)
+        VALUES (?, ?, ?, NULL, 'Open', ?)`,
+      ).run(randomUUID(), id, user.id, now);
+      db.exec("COMMIT");
+    } catch (error) {
+      db.exec("ROLLBACK");
+      throw error;
+    }
+    return db
+      .prepare(
+        `SELECT id, kind, item, category, description, location, substr(created_at, 1, 10) AS date, status
+        FROM lost_found_items WHERE id = ?`,
+      )
+      .get(id) as LostFoundViewItem;
+  });
+
+export const claimFoundItemFn = createServerFn({ method: "POST" })
+  .validator((input: unknown) => lostFoundClaimSchema.parse(input))
+  .handler(async ({ data }) => {
+    const { requireCampusUser } = await import("./server/auth.server");
+    const { getDb } = await import("./server/db.server");
+    const { randomUUID } = await import("node:crypto");
+    const user = await requireCampusUser();
+    if (user.role !== "Student" && user.role !== "Admin")
+      throw new Error("You do not have access to claim this item.");
+    const db = getDb();
+    const now = new Date().toISOString();
+    db.exec("BEGIN IMMEDIATE");
+    try {
+      const item = db
+        .prepare("SELECT kind, status, reporter_user_id AS reporterUserId FROM lost_found_items WHERE id = ?")
+        .get(data.id) as
+        | { kind: string; status: string; reporterUserId: string }
+        | undefined;
+      if (!item || item.kind !== "Found" || item.status !== "Open")
+        throw new Error("This found item is no longer available to claim.");
+      if (user.role === "Student" && item.reporterUserId === user.id)
+        throw new Error("You cannot claim an item you reported as found.");
+      db.prepare(
+        `INSERT INTO lost_found_claims (id, item_id, claimer_user_id, status, created_at, updated_at)
+        VALUES (?, ?, ?, 'Active', ?, ?)`,
+      ).run(randomUUID(), data.id, user.id, now, now);
+      db.prepare(
+        `UPDATE lost_found_items SET status = 'Claimed', claimed_by_user_id = ?, claimed_at = ?, updated_at = ?
+        WHERE id = ?`,
+      ).run(user.id, now, now, data.id);
+      db.prepare(
+        `INSERT INTO lost_found_status_history (id, item_id, actor_user_id, from_status, to_status, created_at)
+        VALUES (?, ?, ?, 'Open', 'Claimed', ?)`,
+      ).run(randomUUID(), data.id, user.id, now);
+      db.exec("COMMIT");
+    } catch (error) {
+      db.exec("ROLLBACK");
+      throw error;
+    }
+    return db
+      .prepare(
+        `SELECT id, kind, item, category, description, location, substr(created_at, 1, 10) AS date, status
+        FROM lost_found_items WHERE id = ?`,
+      )
+      .get(data.id) as LostFoundViewItem;
+  });
+
 export const getTimetableFn = createServerFn({ method: "GET" }).handler(async () => {
   const { requireCampusUser } = await import("./server/auth.server");
   const { getDb } = await import("./server/db.server");
@@ -276,6 +533,173 @@ export const getTimetableFn = createServerFn({ method: "GET" }).handler(async ()
     )
     .all(user.id) as typeof import("@/data/mock").timetable;
 });
+
+export const getStudentAttendanceFn = createServerFn({ method: "GET" }).handler(async () => {
+  const { requireCampusUser } = await import("./server/auth.server");
+  const { getDb } = await import("./server/db.server");
+  const user = await requireCampusUser("Student");
+  return getDb()
+    .prepare(
+      `SELECT course_code AS code, subject, attended, total FROM attendance
+      WHERE student_id = ? ORDER BY course_code`,
+    )
+    .all(user.id) as { code: string; subject: string; attended: number; total: number }[];
+});
+
+export const getStudentAssignmentsFn = createServerFn({ method: "GET" }).handler(async () => {
+  const { requireCampusUser } = await import("./server/auth.server");
+  const { getDb } = await import("./server/db.server");
+  const user = await requireCampusUser("Student");
+  return getDb()
+    .prepare(
+      `SELECT a.id, a.title, a.subject, a.code, a.due, a.status, a.faculty, a.marks,
+        s.filename AS submittedFilename, s.mime_type AS submittedMimeType,
+        s.file_size_bytes AS submittedFileSizeBytes, s.storage_state AS submissionStorageState,
+        s.submitted_at AS submittedAt
+      FROM assignments a LEFT JOIN assignment_submissions s
+        ON s.assignment_id = a.id AND s.student_id = a.student_id
+      WHERE a.student_id = ? ORDER BY a.due, a.title`,
+    )
+    .all(user.id) as {
+    id: string;
+    title: string;
+    subject: string;
+    code: string;
+    due: string;
+    status: "Pending" | "Submitted" | "Graded" | "Overdue";
+    faculty: string;
+    marks: string | null;
+    submittedFilename: string | null;
+    submittedMimeType: string | null;
+    submittedFileSizeBytes: number | null;
+    submissionStorageState: "MetadataOnly" | null;
+    submittedAt: string | null;
+  }[];
+});
+
+export const submitAssignmentFn = createServerFn({ method: "POST" })
+  .validator((input: unknown) => assignmentSubmissionSchema.parse(input))
+  .handler(async ({ data }) => {
+    const { requireCampusUser } = await import("./server/auth.server");
+    const { getDb } = await import("./server/db.server");
+    const { randomUUID } = await import("node:crypto");
+    const user = await requireCampusUser("Student");
+    const db = getDb();
+    const now = new Date().toISOString();
+    db.exec("BEGIN IMMEDIATE");
+    try {
+      const assignment = db
+        .prepare("SELECT status FROM assignments WHERE id = ? AND student_id = ?")
+        .get(data.assignmentId, user.id) as { status: string } | undefined;
+      if (!assignment) throw new Error("Assignment was not found for your account.");
+      if (assignment.status === "Graded") throw new Error("A graded assignment cannot be changed.");
+
+      db.prepare(
+        `INSERT INTO assignment_submissions
+          (id, assignment_id, student_id, filename, mime_type, file_size_bytes, storage_state, submitted_at)
+        VALUES (?, ?, ?, ?, ?, ?, 'MetadataOnly', ?)
+        ON CONFLICT(assignment_id, student_id) DO UPDATE SET
+          filename = excluded.filename, mime_type = excluded.mime_type,
+          file_size_bytes = excluded.file_size_bytes, storage_state = excluded.storage_state,
+          submitted_at = excluded.submitted_at`,
+      ).run(
+        randomUUID(),
+        data.assignmentId,
+        user.id,
+        data.filename,
+        data.mimeType,
+        data.fileSizeBytes,
+        now,
+      );
+      db.prepare(
+        "UPDATE assignments SET status = 'Submitted' WHERE id = ? AND student_id = ?",
+      ).run(data.assignmentId, user.id);
+      db.exec("COMMIT");
+    } catch (error) {
+      db.exec("ROLLBACK");
+      throw error;
+    }
+
+    return db
+      .prepare(
+        `SELECT a.id, a.title, a.subject, a.code, a.due, a.status, a.faculty, a.marks,
+          s.filename AS submittedFilename, s.mime_type AS submittedMimeType,
+          s.file_size_bytes AS submittedFileSizeBytes, s.storage_state AS submissionStorageState,
+          s.submitted_at AS submittedAt
+        FROM assignments a JOIN assignment_submissions s
+          ON s.assignment_id = a.id AND s.student_id = a.student_id
+        WHERE a.id = ? AND a.student_id = ?`,
+      )
+      .get(data.assignmentId, user.id);
+  });
+
+type StudentNotification = {
+  id: string;
+  title: string;
+  body: string;
+  time: string;
+  read: boolean;
+  type: "assignment" | "complaint" | "notice" | "event";
+};
+
+export const getStudentNotificationsFn = createServerFn({ method: "GET" }).handler(
+  async (): Promise<StudentNotification[]> => {
+    const { requireCampusUser } = await import("./server/auth.server");
+    const { getDb } = await import("./server/db.server");
+    const { notifications: demoNotifications } = await import("@/data/mock");
+    const user = await requireCampusUser("Student");
+    const db = getDb();
+    const insert = db.prepare(
+      `INSERT OR IGNORE INTO notifications
+        (id, user_id, title, body, type, time_label, created_at, read_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+    );
+    const seedTime = Date.now();
+    demoNotifications.forEach((notification, index) => {
+      const createdAt = new Date(seedTime - index * 1000).toISOString();
+      insert.run(
+        notification.id,
+        user.id,
+        notification.title,
+        notification.body,
+        notification.type,
+        notification.time,
+        createdAt,
+        notification.read ? createdAt : null,
+      );
+    });
+    const rows = db
+      .prepare(
+        `SELECT id, title, body, time_label AS time, read_at IS NOT NULL AS isRead, type
+        FROM notifications WHERE user_id = ? ORDER BY created_at DESC, id`,
+      )
+      .all(user.id) as (Omit<StudentNotification, "read"> & { isRead: number })[];
+    return rows.map(({ isRead, ...notification }) => ({ ...notification, read: Boolean(isRead) }));
+  },
+);
+
+export const setStudentNotificationsReadFn = createServerFn({ method: "POST" })
+  .validator((input: unknown) => notificationReadSchema.parse(input))
+  .handler(async ({ data }) => {
+    const { requireCampusUser } = await import("./server/auth.server");
+    const { getDb } = await import("./server/db.server");
+    const user = await requireCampusUser("Student");
+    const db = getDb();
+    const now = new Date().toISOString();
+    const result =
+      data.mode === "all"
+        ? db
+            .prepare("UPDATE notifications SET read_at = COALESCE(read_at, ?) WHERE user_id = ?")
+            .run(now, user.id)
+        : db
+            .prepare(
+              "UPDATE notifications SET read_at = COALESCE(read_at, ?) WHERE user_id = ? AND id = ?",
+            )
+            .run(now, user.id, data.id);
+    if (data.mode === "one" && Number(result.changes) === 0)
+      throw new Error("Notification was not found for your account.");
+    return { ok: true as const };
+  });
 
 export const getStudentDashboardFn = createServerFn({ method: "GET" }).handler(async () => {
   const { requireCampusUser } = await import("./server/auth.server");
@@ -307,7 +731,8 @@ export const getStudentDashboardFn = createServerFn({ method: "GET" }).handler(a
   return {
     studentName: user.name,
     today: day ?? null,
-    attendance: totals.total > 0 ? Number(((totals.attended / totals.total) * 100).toFixed(1)) : 0,
+    attendance:
+      totals.total > 0 ? Number(((totals.attended / totals.total) * 100).toFixed(1)) : null,
     todayClasses: classCount,
     openComplaints: Number(
       (
@@ -545,6 +970,14 @@ export const askCampusAssistantFn = createServerFn({ method: "POST" })
         Thu: "Thu",
         Fri: "Fri",
       };
+      const timetableCount = Number(
+        (
+          db
+            .prepare("SELECT COUNT(*) AS count FROM timetable WHERE student_id = ?")
+            .get(user.id) as { count: number }
+        ).count,
+      );
+      if (timetableCount === 0) return "No timetable records are available yet.";
       let day = dayNames[weekday];
       if (question.includes("tomorrow")) {
         const next = new Date(Date.now() + 24 * 60 * 60 * 1000);
@@ -566,6 +999,14 @@ export const askCampusAssistantFn = createServerFn({ method: "POST" })
         : `No classes are scheduled for ${day}.`;
     }
     if (question.includes("assignment") || question.includes("due")) {
+      const assignmentCount = Number(
+        (
+          db
+            .prepare("SELECT COUNT(*) AS count FROM assignments WHERE student_id = ?")
+            .get(user.id) as { count: number }
+        ).count,
+      );
+      if (assignmentCount === 0) return "No assignment records are available yet.";
       const rows = db
         .prepare(
           "SELECT title, subject, due FROM assignments WHERE student_id = ? AND status = 'Pending' ORDER BY due LIMIT 3",
