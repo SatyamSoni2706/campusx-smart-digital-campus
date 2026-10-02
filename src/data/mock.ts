@@ -1,6 +1,7 @@
-// Demo data. Replace these exports with API/database calls later.
+// Demo fixtures for screens that are not database-backed yet and initial SQLite seeding.
+// Persistent complaint, notice, session, and dashboard data is fetched through server functions.
 export type Priority = "Low" | "Medium" | "High" | "Urgent";
-export type ComplaintStatus = "Submitted" | "Under Review" | "Assigned" | "In Progress" | "Resolved";
+export type ComplaintStatus = "Submitted" | "Under Review" | "Assigned" | "In Progress" | "Resolved" | "Rejected";
 
 export const currentStudent = {
   name: "Ananya Sharma", initials: "AS", roll: "21CSE1047", email: "ananya.sharma@campusx.edu",

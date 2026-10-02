@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState, useEffect } from "react";
+import { useMemo, useRef, useState, useEffect, type FormEvent } from "react";
 import { toast } from "sonner";
 import { Calendar, Clock, MapPin, Users, Plus, Search, Send, Sparkles, ImagePlus, Bot } from "lucide-react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
@@ -7,7 +7,8 @@ import {
   notices as seedNotices, events as seedEvents, complaints as seedComplaints, lostFound as seedLost,
   timetable, days, todayKey, fmtDate, type Notice, type Complaint, type ComplaintStatus, type LostItem, type Priority,
 } from "@/data/mock";
-import { askAssistant } from "@/lib/assistant";
+import { useServerFn } from "@tanstack/react-start";
+import { askCampusAssistantFn } from "@/lib/campus.functions";
 import { EmptyState, FilterChips, Panel, PanelHeader, StatusBadge, inputCls } from "./ui";
 import { cn } from "@/lib/utils";
 
@@ -16,9 +17,9 @@ const btnGhost = "inline-flex items-center gap-2 rounded-lg border bg-card px-3 
 export { btn, btnGhost };
 
 /* ---------------- Timetable ---------------- */
-export function TodaySchedule({ compact }: { compact?: boolean }) {
+export function TodaySchedule({ compact, items = timetable }: { compact?: boolean; items?: typeof timetable }) {
   const today = todayKey();
-  const list = timetable.filter((t) => t.day === today);
+  const list = today ? items.filter((t) => t.day === today) : [];
   return (
     <div className="flex flex-col">
       {list.map((t, i) => (
@@ -38,7 +39,7 @@ export function TodaySchedule({ compact }: { compact?: boolean }) {
   );
 }
 
-export function WeeklyTimetable() {
+export function WeeklyTimetable({ items = timetable }: { items?: typeof timetable }) {
   const today = todayKey();
   return (
     <div className="grid gap-3 md:grid-cols-5">
@@ -49,7 +50,7 @@ export function WeeklyTimetable() {
             {d === today && <span className="eyebrow !text-primary">Today</span>}
           </div>
           <div className="flex flex-col gap-2">
-            {timetable.filter((t) => t.day === d).map((t, i) => (
+            {items.filter((t) => t.day === d).map((t, i) => (
               <div key={i} className={cn("rounded-lg border-l-4 bg-card p-2.5", t.type === "Lab" ? "border-warning" : t.type === "Tutorial" ? "border-success" : "border-primary")}>
                 <div className="font-mono text-[10px] text-muted-foreground">{t.start}–{t.end} · {t.type}</div>
                 <div className="mt-0.5 text-sm font-semibold leading-snug">{t.subject}</div>
@@ -65,29 +66,82 @@ export function WeeklyTimetable() {
 }
 
 /* ---------------- Notices ---------------- */
-const noticeCats = ["All", "Academic", "Exam", "Placement", "Finance", "Hostel", "General"] as const;
+const noticeCats = [
+  "All",
+  "Academic",
+  "Exam",
+  "Placement",
+  "Finance",
+  "Hostel",
+  "General",
+] as const;
 const prios = ["All", "Urgent", "High", "Medium", "Low"] as const;
 
-export function NoticeBoard({ canPost }: { canPost?: boolean }) {
-  const [items, setItems] = useState<Notice[]>(seedNotices);
+type NoticeInput = Pick<Notice, "title" | "category" | "description" | "priority" | "department">;
+type NoticeBoardProps = {
+  canPost?: boolean;
+  initialItems?: Notice[];
+  onCreate?: (input: NoticeInput) => Promise<Notice>;
+  onUpdate?: (id: string, input: NoticeInput) => Promise<Notice>;
+};
+
+export function NoticeBoard({ canPost, initialItems, onCreate, onUpdate }: NoticeBoardProps) {
+  const [items, setItems] = useState<Notice[]>(initialItems ?? seedNotices);
   const [cat, setCat] = useState<(typeof noticeCats)[number]>("All");
   const [prio, setPrio] = useState<(typeof prios)[number]>("All");
   const [openId, setOpenId] = useState<string | null>(null);
   const [posting, setPosting] = useState(false);
-  const filtered = items.filter((n) => (cat === "All" || n.category === cat) && (prio === "All" || n.priority === prio));
+  const [editing, setEditing] = useState<Notice | null>(null);
+  const [saving, setSaving] = useState(false);
+  useEffect(() => {
+    if (initialItems) setItems(initialItems);
+  }, [initialItems]);
+  const filtered = items.filter(
+    (n) => (cat === "All" || n.category === cat) && (prio === "All" || n.priority === prio),
+  );
   const open = items.find((n) => n.id === openId);
 
   function view(id: string) {
     setOpenId(id);
     setItems((xs) => xs.map((x) => (x.id === id ? { ...x, read: true } : x)));
   }
-  function post(fd: FormData) {
-    const n: Notice = {
-      id: crypto.randomUUID(), title: String(fd.get("title")), category: fd.get("category") as Notice["category"],
-      description: String(fd.get("description")), priority: fd.get("priority") as Priority, department: String(fd.get("department")),
-      date: new Date().toISOString().slice(0, 10), read: true,
+  async function post(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setSaving(true);
+    const fd = new FormData(event.currentTarget);
+    const input: NoticeInput = {
+      title: String(fd.get("title")),
+      category: fd.get("category") as Notice["category"],
+      description: String(fd.get("description")),
+      priority: fd.get("priority") as Priority,
+      department: String(fd.get("department")),
     };
-    setItems((xs) => [n, ...xs]); setPosting(false); toast.success("Notice published");
+    try {
+      if (editing && onUpdate) {
+        const updated = await onUpdate(editing.id, input);
+        setItems((xs) => xs.map((item) => (item.id === updated.id ? updated : item)));
+        toast.success("Notice updated");
+      } else if (onCreate) {
+        const created = await onCreate(input);
+        setItems((xs) => [created, ...xs]);
+        toast.success("Notice published");
+      } else {
+        const n: Notice = {
+          id: crypto.randomUUID(),
+          ...input,
+          date: new Date().toISOString().slice(0, 10),
+          read: true,
+        };
+        setItems((xs) => [n, ...xs]);
+        toast.success("Notice published in demo mode");
+      }
+      setPosting(false);
+      setEditing(null);
+    } catch {
+      toast.error("Could not save the notice. Please try again.");
+    } finally {
+      setSaving(false);
+    }
   }
 
   return (
@@ -96,34 +150,69 @@ export function NoticeBoard({ canPost }: { canPost?: boolean }) {
         <div className="flex flex-wrap items-center justify-between gap-3">
           <FilterChips options={noticeCats} value={cat} onChange={setCat} />
           <div className="flex items-center gap-3">
-            <span className="font-mono text-xs text-muted-foreground">{items.filter((x) => !x.read).length} unread</span>
-            {canPost && <button className={btn} onClick={() => setPosting(true)}><Plus className="size-4" />New notice</button>}
+            <span className="font-mono text-xs text-muted-foreground">
+              {items.filter((x) => !x.read).length} unread
+            </span>
+            {canPost && (
+              <button className={btn} onClick={() => setPosting(true)}>
+                <Plus className="size-4" />
+                New notice
+              </button>
+            )}
           </div>
         </div>
         <FilterChips options={prios} value={prio} onChange={setPrio} />
       </div>
       <div className="flex flex-col gap-3">
         {filtered.map((n) => (
-          <button key={n.id} onClick={() => view(n.id)} className="glass rise rounded-xl p-4 text-left transition hover:shadow-md">
+          <button
+            key={n.id}
+            onClick={() => view(n.id)}
+            className="glass rise rounded-xl p-4 text-left transition hover:shadow-md"
+          >
             <div className="flex flex-wrap items-center gap-2">
               {!n.read && <span className="size-2 rounded-full bg-primary" aria-label="Unread" />}
               <StatusBadge value={n.priority} />
-              <span className="rounded-full border px-2 py-0.5 text-[11px] text-muted-foreground">{n.category}</span>
-              <span className="ml-auto font-mono text-[11px] text-muted-foreground">{fmtDate(n.date)}</span>
+              <span className="rounded-full border px-2 py-0.5 text-[11px] text-muted-foreground">
+                {n.category}
+              </span>
+              <span className="ml-auto font-mono text-[11px] text-muted-foreground">
+                {fmtDate(n.date)}
+              </span>
             </div>
             <div className={cn("mt-2", n.read ? "font-medium" : "font-semibold")}>{n.title}</div>
             <p className="mt-1 line-clamp-1 text-sm text-muted-foreground">{n.description}</p>
             <div className="mt-2 font-mono text-[11px] text-muted-foreground">{n.department}</div>
           </button>
         ))}
-        {filtered.length === 0 && <EmptyState title="No notices match" desc="Try a different category or priority." />}
+        {filtered.length === 0 && (
+          <EmptyState title="No notices match" desc="Try a different category or priority." />
+        )}
       </div>
       <Dialog open={!!open} onOpenChange={(o) => !o && setOpenId(null)}>
         <DialogContent>
           {open && (
             <>
               <DialogHeader>
-                <div className="flex gap-2"><StatusBadge value={open.priority} /><span className="text-xs text-muted-foreground">{open.category} · {fmtDate(open.date)}</span></div>
+                <div className="flex gap-2">
+                  <StatusBadge value={open.priority} />
+                  <span className="text-xs text-muted-foreground">
+                    {open.category} · {fmtDate(open.date)}
+                  </span>
+                  {canPost && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setEditing(open);
+                        setPosting(true);
+                        setOpenId(null);
+                      }}
+                      className="ml-auto text-xs font-semibold text-primary"
+                    >
+                      Edit
+                    </button>
+                  )}
+                </div>
                 <DialogTitle className="font-display text-xl">{open.title}</DialogTitle>
                 <DialogDescription>{open.department}</DialogDescription>
               </DialogHeader>
@@ -132,18 +221,71 @@ export function NoticeBoard({ canPost }: { canPost?: boolean }) {
           )}
         </DialogContent>
       </Dialog>
-      <Dialog open={posting} onOpenChange={setPosting}>
+      <Dialog
+        open={posting}
+        onOpenChange={(value) => {
+          setPosting(value);
+          if (!value) setEditing(null);
+        }}
+      >
         <DialogContent>
-          <DialogHeader><DialogTitle className="font-display">Publish a notice</DialogTitle></DialogHeader>
-          <form action={post} className="flex flex-col gap-3">
-            <input name="title" required placeholder="Title" className={inputCls} />
+          <DialogHeader>
+            <DialogTitle className="font-display">
+              {editing ? "Edit notice" : "Publish a notice"}
+            </DialogTitle>
+          </DialogHeader>
+          <form key={editing?.id ?? "new-notice"} onSubmit={post} className="flex flex-col gap-3">
+            <input
+              name="title"
+              required
+              minLength={4}
+              maxLength={160}
+              defaultValue={editing?.title}
+              placeholder="Title"
+              className={inputCls}
+            />
             <div className="grid grid-cols-2 gap-3">
-              <select name="category" className={inputCls}>{noticeCats.slice(1).map((c) => <option key={c}>{c}</option>)}</select>
-              <select name="priority" className={inputCls}>{prios.slice(1).map((c) => <option key={c}>{c}</option>)}</select>
+              <select
+                name="category"
+                defaultValue={editing?.category ?? "Academic"}
+                className={inputCls}
+              >
+                {noticeCats.slice(1).map((c) => (
+                  <option key={c}>{c}</option>
+                ))}
+              </select>
+              <select
+                name="priority"
+                defaultValue={editing?.priority ?? "Medium"}
+                className={inputCls}
+              >
+                {prios.slice(1).map((c) => (
+                  <option key={c}>{c}</option>
+                ))}
+              </select>
             </div>
-            <input name="department" required placeholder="Department" className={inputCls} />
-            <textarea name="description" required rows={4} placeholder="Details" className={inputCls} />
-            <button className={btn}>Publish</button>
+            <input
+              name="department"
+              required
+              minLength={2}
+              maxLength={120}
+              defaultValue={editing?.department}
+              placeholder="Department"
+              className={inputCls}
+            />
+            <textarea
+              name="description"
+              required
+              minLength={8}
+              maxLength={3000}
+              rows={4}
+              defaultValue={editing?.description}
+              placeholder="Details"
+              className={inputCls}
+            />
+            <button disabled={saving} className={btn}>
+              {saving ? "Saving…" : editing ? "Save changes" : "Publish"}
+            </button>
           </form>
         </DialogContent>
       </Dialog>
@@ -227,100 +369,390 @@ export function EventsBoard({ manage }: { manage?: boolean }) {
 }
 
 /* ---------------- Complaints ---------------- */
-const statuses: ComplaintStatus[] = ["Submitted", "Under Review", "Assigned", "In Progress", "Resolved"];
-const complaintCats = ["Classroom", "Infrastructure", "IT / Network", "Hostel", "Canteen", "Furniture", "Other"];
+const statuses: ComplaintStatus[] = [
+  "Submitted",
+  "Under Review",
+  "Assigned",
+  "In Progress",
+  "Resolved",
+  "Rejected",
+];
+const complaintCats = [
+  "Classroom",
+  "Infrastructure",
+  "IT / Network",
+  "Hostel",
+  "Canteen",
+  "Furniture",
+  "Other",
+];
 
 export function ComplaintTracker({ status }: { status: ComplaintStatus }) {
-  const idx = statuses.indexOf(status);
+  const progressStatuses = statuses.filter(
+    (item): item is Exclude<ComplaintStatus, "Rejected"> => item !== "Rejected",
+  );
+  const idx = status === "Rejected" ? -1 : progressStatuses.indexOf(status);
   return (
     <div className="flex items-center gap-1">
-      {statuses.map((s, i) => <div key={s} title={s} className={cn("h-1.5 flex-1 rounded-full", i <= idx ? (status === "Resolved" ? "bg-success" : "bg-primary") : "bg-border")} />)}
+      {progressStatuses.map((s, i) => (
+        <div
+          key={s}
+          title={s}
+          className={cn(
+            "h-1.5 flex-1 rounded-full",
+            status === "Rejected"
+              ? i === 0
+                ? "bg-danger"
+                : "bg-border"
+              : i <= idx
+                ? status === "Resolved"
+                  ? "bg-success"
+                  : "bg-primary"
+                : "bg-border",
+          )}
+        />
+      ))}
     </div>
   );
 }
 
-export function ComplaintsView({ mode }: { mode: "student" | "admin" | "faculty" }) {
-  const [items, setItems] = useState<Complaint[]>(mode === "student" ? seedComplaints.filter((c) => c.by === "Ananya Sharma") : seedComplaints);
+type ComplaintHistoryItem = {
+  fromStatus: string | null;
+  toStatus: string;
+  resolutionInfo: string;
+  createdAt: string;
+  actorName: string;
+};
+type ComplaintItem = Complaint & {
+  resolutionInfo?: string;
+  createdAt?: string;
+  updatedAt?: string;
+  history?: ComplaintHistoryItem[];
+};
+type ComplaintInput = Pick<
+  Complaint,
+  "title" | "category" | "description" | "location" | "priority"
+>;
+type ComplaintsViewProps = {
+  mode: "student" | "admin" | "faculty";
+  initialItems?: ComplaintItem[];
+  onSubmit?: (input: ComplaintInput) => Promise<ComplaintItem>;
+  onUpdate?: (
+    id: string,
+    status: ComplaintStatus,
+    resolutionInfo: string,
+  ) => Promise<ComplaintItem>;
+};
+
+export function ComplaintsView({ mode, initialItems, onSubmit, onUpdate }: ComplaintsViewProps) {
+  const [items, setItems] = useState<ComplaintItem[]>(
+    initialItems ??
+      (mode === "student"
+        ? seedComplaints.filter((c) => c.by === "Ananya Sharma")
+        : seedComplaints),
+  );
   const [filter, setFilter] = useState<"All" | ComplaintStatus>("All");
   const [creating, setCreating] = useState(false);
   const [preview, setPreview] = useState<string | null>(null);
+  const [drafts, setDrafts] = useState<
+    Record<string, { status: ComplaintStatus; resolutionInfo: string }>
+  >({});
+  const [savingId, setSavingId] = useState<string | null>(null);
+  const [submitting, setSubmitting] = useState(false);
+  useEffect(() => {
+    if (initialItems) setItems(initialItems);
+  }, [initialItems]);
   const filtered = items.filter((c) => filter === "All" || c.status === filter);
 
-  function submit(fd: FormData) {
+  function localSubmit(fd: FormData) {
     const c: Complaint = {
-      id: `C-${1047 + items.length}`, title: String(fd.get("title")), category: String(fd.get("category")), description: String(fd.get("description")),
-      location: String(fd.get("location")), priority: fd.get("priority") as Priority, status: "Submitted", date: new Date().toISOString().slice(0, 10), by: "Ananya Sharma",
+      id: `C-${1047 + items.length}`,
+      title: String(fd.get("title")),
+      category: String(fd.get("category")),
+      description: String(fd.get("description")),
+      location: String(fd.get("location")),
+      priority: fd.get("priority") as Priority,
+      status: "Submitted",
+      date: new Date().toISOString().slice(0, 10),
+      by: "Ananya Sharma",
     };
-    setItems((xs) => [c, ...xs]); setCreating(false); setPreview(null); toast.success(`Complaint ${c.id} submitted`);
+    setItems((xs) => [c, ...xs]);
+    setCreating(false);
+    setPreview(null);
+    toast.success(`Complaint ${c.id} submitted in demo mode`);
   }
-  function update(id: string, s: ComplaintStatus) {
-    setItems((xs) => xs.map((c) => (c.id === id ? { ...c, status: s } : c))); toast.success(`${id} → ${s}`);
+
+  async function submit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setSubmitting(true);
+    const fd = new FormData(event.currentTarget);
+    const input: ComplaintInput = {
+      title: String(fd.get("title")),
+      category: String(fd.get("category")),
+      description: String(fd.get("description")),
+      location: String(fd.get("location")),
+      priority: fd.get("priority") as Priority,
+    };
+    try {
+      if (!onSubmit) {
+        localSubmit(fd);
+        return;
+      }
+      const created = await onSubmit(input);
+      setItems((xs) => [created, ...xs]);
+      setCreating(false);
+      setPreview(null);
+      toast.success(`Complaint ${created.id} submitted`);
+    } catch {
+      toast.error("Could not submit the complaint. Please try again.");
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  async function saveUpdate(c: ComplaintItem) {
+    const draft = drafts[c.id] ?? { status: c.status, resolutionInfo: c.resolutionInfo ?? "" };
+    setSavingId(c.id);
+    try {
+      if (onUpdate) {
+        const updated = await onUpdate(c.id, draft.status, draft.resolutionInfo);
+        setItems((xs) => xs.map((item) => (item.id === c.id ? updated : item)));
+      } else {
+        setItems((xs) =>
+          xs.map((item) =>
+            item.id === c.id
+              ? { ...item, status: draft.status, resolutionInfo: draft.resolutionInfo }
+              : item,
+          ),
+        );
+      }
+      setDrafts((xs) => {
+        const next = { ...xs };
+        delete next[c.id];
+        return next;
+      });
+      toast.success(`${c.id} updated`);
+    } catch {
+      toast.error("Could not update the complaint. Please try again.");
+    } finally {
+      setSavingId(null);
+    }
   }
 
   return (
     <>
       <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
         <FilterChips options={["All", ...statuses] as const} value={filter} onChange={setFilter} />
-        {mode === "student" && <button className={btn} onClick={() => setCreating(true)}><Plus className="size-4" />New complaint</button>}
+        {mode === "student" && (
+          <button className={btn} onClick={() => setCreating(true)}>
+            <Plus className="size-4" />
+            New complaint
+          </button>
+        )}
       </div>
       {mode === "student" ? (
         <div className="grid gap-4 md:grid-cols-2">
           {filtered.map((c) => (
             <div key={c.id} className="glass rise rounded-xl p-5">
-              <div className="flex items-center gap-2"><span className="font-mono text-xs text-muted-foreground">{c.id}</span><StatusBadge value={c.priority} /><StatusBadge value={c.status} className="ml-auto" /></div>
+              <div className="flex items-center gap-2">
+                <span className="font-mono text-xs text-muted-foreground">{c.id}</span>
+                <StatusBadge value={c.priority} />
+                <StatusBadge value={c.status} className="ml-auto" />
+              </div>
               <h3 className="mt-2 font-bold">{c.title}</h3>
               <p className="mt-1 text-sm text-muted-foreground">{c.description}</p>
+              {c.resolutionInfo && (
+                <p className="mt-2 rounded-lg bg-success-soft p-2 text-sm text-success">
+                  <strong>Resolution:</strong> {c.resolutionInfo}
+                </p>
+              )}
               <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1 font-mono text-[11px] text-muted-foreground">
-                <span>{c.category}</span><span>{c.location}</span><span>{fmtDate(c.date)}</span>{c.assignee && <span>→ {c.assignee}</span>}
+                <span>{c.category}</span>
+                <span>{c.location}</span>
+                <span>{fmtDate(c.date)}</span>
+                {c.assignee && <span>→ {c.assignee}</span>}
               </div>
-              <div className="mt-4"><ComplaintTracker status={c.status} /></div>
+              <div className="mt-4">
+                <ComplaintTracker status={c.status} />
+              </div>
+              {c.history && c.history.length > 0 && (
+                <div className="mt-3 border-t pt-2 text-[11px] text-muted-foreground">
+                  Latest update:{" "}
+                  {c.history.at(-1)?.fromStatus ? `${c.history.at(-1)?.fromStatus} → ` : ""}
+                  {c.history.at(-1)?.toStatus} · {c.history.at(-1)?.actorName}
+                </div>
+              )}
             </div>
           ))}
-          {filtered.length === 0 && <div className="md:col-span-2"><EmptyState title="No complaints here" desc="Anything broken on campus? Report it in seconds." /></div>}
+          {filtered.length === 0 && (
+            <div className="md:col-span-2">
+              <EmptyState
+                title="No complaints here"
+                desc="Anything broken on campus? Report it in seconds."
+              />
+            </div>
+          )}
         </div>
       ) : (
         <div className="glass overflow-x-auto rounded-xl">
-          <table className="w-full min-w-[760px] text-sm">
-            <thead><tr className="border-b text-left"><th className="eyebrow p-3">ID</th><th className="eyebrow p-3">Issue</th><th className="eyebrow p-3">Reported by</th><th className="eyebrow p-3">Priority</th><th className="eyebrow p-3">Date</th><th className="eyebrow p-3">Status</th></tr></thead>
+          <table className="w-full min-w-[980px] text-sm">
+            <thead>
+              <tr className="border-b text-left">
+                <th className="eyebrow p-3">ID</th>
+                <th className="eyebrow p-3">Issue</th>
+                <th className="eyebrow p-3">Reported by</th>
+                <th className="eyebrow p-3">Priority</th>
+                <th className="eyebrow p-3">Date</th>
+                <th className="eyebrow p-3">Status</th>
+                {mode === "admin" && <th className="eyebrow p-3">Resolution / action</th>}
+              </tr>
+            </thead>
             <tbody>
               {filtered.map((c) => (
                 <tr key={c.id} className="border-b last:border-0 hover:bg-card/60">
                   <td className="p-3 font-mono text-xs">{c.id}</td>
-                  <td className="p-3"><div className="font-semibold">{c.title}</div><div className="text-xs text-muted-foreground">{c.category} · {c.location}</div></td>
+                  <td className="p-3">
+                    <div className="font-semibold">{c.title}</div>
+                    <div className="text-xs text-muted-foreground">
+                      {c.category} · {c.location}
+                    </div>
+                  </td>
                   <td className="p-3">{c.by}</td>
-                  <td className="p-3"><StatusBadge value={c.priority} /></td>
+                  <td className="p-3">
+                    <StatusBadge value={c.priority} />
+                  </td>
                   <td className="p-3 font-mono text-xs text-muted-foreground">{fmtDate(c.date)}</td>
                   <td className="p-3">
                     {mode === "admin" ? (
-                      <select value={c.status} onChange={(e) => update(c.id, e.target.value as ComplaintStatus)} className="rounded-md border bg-card px-2 py-1 text-xs">
-                        {statuses.map((s) => <option key={s}>{s}</option>)}
+                      <select
+                        value={drafts[c.id]?.status ?? c.status}
+                        onChange={(e) =>
+                          setDrafts((xs) => ({
+                            ...xs,
+                            [c.id]: {
+                              status: e.target.value as ComplaintStatus,
+                              resolutionInfo: xs[c.id]?.resolutionInfo ?? c.resolutionInfo ?? "",
+                            },
+                          }))
+                        }
+                        className="rounded-md border bg-card px-2 py-1 text-xs"
+                      >
+                        {statuses.map((s) => (
+                          <option key={s}>{s}</option>
+                        ))}
                       </select>
-                    ) : <StatusBadge value={c.status} />}
+                    ) : (
+                      <StatusBadge value={c.status} />
+                    )}
                   </td>
+                  {mode === "admin" && (
+                    <td className="p-3">
+                      <div className="flex min-w-[280px] gap-2">
+                        <input
+                          value={drafts[c.id]?.resolutionInfo ?? c.resolutionInfo ?? ""}
+                          onChange={(e) =>
+                            setDrafts((xs) => ({
+                              ...xs,
+                              [c.id]: {
+                                status: xs[c.id]?.status ?? c.status,
+                                resolutionInfo: e.target.value,
+                              },
+                            }))
+                          }
+                          maxLength={2000}
+                          placeholder="Resolution / update"
+                          className="min-w-0 flex-1 rounded-md border bg-card px-2 py-1 text-xs"
+                        />
+                        <button
+                          type="button"
+                          disabled={savingId === c.id}
+                          onClick={() => saveUpdate(c)}
+                          className="rounded-md bg-primary px-2 py-1 text-xs font-semibold text-primary-foreground disabled:opacity-60"
+                        >
+                          {savingId === c.id ? "Saving…" : "Save"}
+                        </button>
+                      </div>
+                    </td>
+                  )}
                 </tr>
               ))}
             </tbody>
           </table>
-          {filtered.length === 0 && <div className="p-6"><EmptyState title="No complaints" /></div>}
+          {filtered.length === 0 && (
+            <div className="p-6">
+              <EmptyState title="No complaints" />
+            </div>
+          )}
         </div>
       )}
       <Dialog open={creating} onOpenChange={setCreating}>
         <DialogContent>
-          <DialogHeader><DialogTitle className="font-display">Report an issue</DialogTitle><DialogDescription>We'll route it to the right team.</DialogDescription></DialogHeader>
-          <form action={submit} className="flex flex-col gap-3">
-            <input name="title" required placeholder="Complaint title" className={inputCls} />
+          <DialogHeader>
+            <DialogTitle className="font-display">Report an issue</DialogTitle>
+            <DialogDescription>We'll route it to the right team.</DialogDescription>
+          </DialogHeader>
+          <form onSubmit={submit} className="flex flex-col gap-3">
+            <input
+              name="title"
+              required
+              minLength={4}
+              maxLength={160}
+              placeholder="Complaint title"
+              className={inputCls}
+            />
             <div className="grid grid-cols-2 gap-3">
-              <select name="category" className={inputCls}>{complaintCats.map((c) => <option key={c}>{c}</option>)}</select>
-              <select name="priority" defaultValue="Medium" className={inputCls}>{(["Low", "Medium", "High", "Urgent"] as const).map((c) => <option key={c}>{c}</option>)}</select>
+              <select name="category" className={inputCls}>
+                {complaintCats.map((c) => (
+                  <option key={c}>{c}</option>
+                ))}
+              </select>
+              <select name="priority" defaultValue="Medium" className={inputCls}>
+                {(["Low", "Medium", "High", "Urgent"] as const).map((c) => (
+                  <option key={c}>{c}</option>
+                ))}
+              </select>
             </div>
-            <input name="location" required placeholder="Location (e.g. LH-3, Block B)" className={inputCls} />
-            <textarea name="description" required rows={3} placeholder="Describe the problem" className={inputCls} />
+            <input
+              name="location"
+              required
+              minLength={2}
+              maxLength={160}
+              placeholder="Location (e.g. LH-3, Block B)"
+              className={inputCls}
+            />
+            <textarea
+              name="description"
+              required
+              minLength={8}
+              maxLength={2000}
+              rows={3}
+              placeholder="Describe the problem"
+              className={inputCls}
+            />
             <label className="flex cursor-pointer items-center gap-3 rounded-lg border border-dashed p-3 text-sm text-muted-foreground">
-              {preview ? <img src={preview} alt="Attachment preview" className="size-12 rounded object-cover" /> : <ImagePlus className="size-5" />}
+              {preview ? (
+                <img
+                  src={preview}
+                  alt="Attachment preview"
+                  className="size-12 rounded object-cover"
+                />
+              ) : (
+                <ImagePlus className="size-5" />
+              )}
               {preview ? "Image attached" : "Attach a photo (optional)"}
-              <input type="file" accept="image/*" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) setPreview(URL.createObjectURL(f)); }} />
+              <input
+                type="file"
+                accept="image/*"
+                className="hidden"
+                onChange={(e) => {
+                  const f = e.target.files?.[0];
+                  if (f) setPreview(URL.createObjectURL(f));
+                }}
+              />
             </label>
-            <button className={btn}>Submit complaint</button>
+            <button disabled={submitting} className={btn}>
+              {submitting ? "Submitting…" : "Submit complaint"}
+            </button>
           </form>
         </DialogContent>
       </Dialog>
@@ -402,6 +834,7 @@ function Rich({ text }: { text: string }) {
 }
 
 export function Assistant() {
+  const askCampusAssistant = useServerFn(askCampusAssistantFn);
   const [msgs, setMsgs] = useState<Msg[]>([{ role: "bot", text: "Hi Ananya — I'm your Campus Intelligence Assistant. Ask me about classes, attendance, notices, deadlines or campus services." }]);
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
@@ -411,8 +844,15 @@ export function Assistant() {
   async function send(q: string) {
     if (!q.trim() || busy) return;
     setMsgs((m) => [...m, { role: "user", text: q }]); setInput(""); setBusy(true);
-    const a = await askAssistant(q);
-    setMsgs((m) => [...m, { role: "bot", text: a }]); setBusy(false);
+    try {
+      const result = await askCampusAssistant({ data: { question: q } });
+      setMsgs((m) => [...m, { role: "bot", text: result }]);
+    } catch {
+      toast.error("The campus assistant could not load data. Please try again.");
+      setMsgs((m) => [...m, { role: "bot", text: "I couldn't reach campus data just now. Please try again shortly." }]);
+    } finally {
+      setBusy(false);
+    }
   }
 
   return (

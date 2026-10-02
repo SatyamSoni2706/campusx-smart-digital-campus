@@ -51,7 +51,7 @@ export function Stat({ label, value, hint, tone = "muted", bar }: { label: strin
 const tones: Record<string, string> = {
   Urgent: "bg-danger-soft text-danger", High: "bg-warning-soft text-warning", Medium: "bg-brand-soft text-primary", Low: "bg-muted text-muted-foreground",
   Submitted: "bg-muted text-muted-foreground", "Under Review": "bg-warning-soft text-warning", Assigned: "bg-brand-soft text-primary",
-  "In Progress": "bg-brand-soft text-primary", Resolved: "bg-success-soft text-success",
+  "In Progress": "bg-brand-soft text-primary", Resolved: "bg-success-soft text-success", Rejected: "bg-danger-soft text-danger",
   Pending: "bg-warning-soft text-warning", Graded: "bg-success-soft text-success", Overdue: "bg-danger-soft text-danger",
   Lost: "bg-danger-soft text-danger", Found: "bg-success-soft text-success", Open: "bg-brand-soft text-primary", Claimed: "bg-muted text-muted-foreground",
   Active: "bg-success-soft text-success", Probation: "bg-danger-soft text-danger",

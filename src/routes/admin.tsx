@@ -1,7 +1,18 @@
-import { createFileRoute } from "@tanstack/react-router";
-import { BarChart3, Building2, GraduationCap, LayoutDashboard, Megaphone, PackageSearch, Settings, Ticket, Users, Wrench } from "lucide-react";
+import { createFileRoute, redirect } from "@tanstack/react-router";
+import {
+  BarChart3,
+  Building2,
+  GraduationCap,
+  LayoutDashboard,
+  Megaphone,
+  PackageSearch,
+  Settings,
+  Ticket,
+  Users,
+  Wrench,
+} from "lucide-react";
 import { PortalShell, type NavItem } from "@/components/campus/PortalShell";
-import { currentAdmin } from "@/data/mock";
+import { currentUserFn } from "@/lib/auth.functions";
 
 const nav: NavItem[] = [
   { to: "/admin", label: "Dashboard", icon: LayoutDashboard },
@@ -17,7 +28,29 @@ const nav: NavItem[] = [
 ];
 
 export const Route = createFileRoute("/admin")({
-  component: () => (
-    <PortalShell role="Admin" nav={nav} user={{ name: currentAdmin.name, initials: currentAdmin.initials, sub: currentAdmin.designation }} />
-  ),
+  beforeLoad: async () => {
+    const user = await currentUserFn();
+    if (!user) throw redirect({ to: "/login" });
+    if (user.role !== "Admin")
+      throw redirect({ to: user.role === "Student" ? "/student" : "/login" });
+    return { user };
+  },
+  component: AdminLayout,
 });
+
+function AdminLayout() {
+  const { user } = Route.useRouteContext();
+  const initials = user.name
+    .split(/\s+/)
+    .map((part) => part[0])
+    .slice(0, 2)
+    .join("")
+    .toUpperCase();
+  return (
+    <PortalShell
+      role="Admin"
+      nav={nav}
+      user={{ name: user.name, initials, sub: "Administrator" }}
+    />
+  );
+}
