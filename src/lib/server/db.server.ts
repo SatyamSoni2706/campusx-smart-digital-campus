@@ -222,6 +222,34 @@ function createSchema(db: DatabaseSync) {
       PRIMARY KEY (student_user_id, course_id)
     );
     CREATE INDEX IF NOT EXISTS course_enrollments_by_course ON course_enrollments(course_id);
+    CREATE TABLE IF NOT EXISTS attendance_sessions (
+      id TEXT PRIMARY KEY,
+      course_id TEXT NOT NULL REFERENCES courses(id) ON DELETE CASCADE,
+      faculty_user_id TEXT NOT NULL REFERENCES users(id),
+      session_date TEXT NOT NULL,
+      start_time TEXT,
+      end_time TEXT,
+      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      UNIQUE (id, course_id)
+    );
+    CREATE INDEX IF NOT EXISTS attendance_sessions_by_course_date
+      ON attendance_sessions(course_id, session_date DESC);
+    CREATE TABLE IF NOT EXISTS attendance_records (
+      session_id TEXT NOT NULL,
+      course_id TEXT NOT NULL,
+      student_user_id TEXT NOT NULL,
+      status TEXT NOT NULL CHECK (status IN ('Present', 'Absent')),
+      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      PRIMARY KEY (session_id, student_user_id),
+      FOREIGN KEY (session_id, course_id)
+        REFERENCES attendance_sessions(id, course_id) ON DELETE CASCADE,
+      FOREIGN KEY (student_user_id, course_id)
+        REFERENCES course_enrollments(student_user_id, course_id) ON DELETE CASCADE
+    );
+    CREATE INDEX IF NOT EXISTS attendance_records_by_student_course
+      ON attendance_records(student_user_id, course_id);
   `);
 
   // Existing SQLite files may have the original event_registrations schema.

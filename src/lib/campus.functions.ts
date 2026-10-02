@@ -79,6 +79,29 @@ const notificationReadSchema = z.discriminatedUnion("mode", [
   z.object({ mode: z.literal("one"), id: z.string().min(1).max(100) }),
   z.object({ mode: z.literal("all") }),
 ]);
+const facultyAttendanceQuerySchema = z.object({
+  courseId: z.string().uuid().optional(),
+  sessionId: z.string().uuid().optional(),
+}).refine((input) => !input.sessionId || input.courseId, "A course is required to load a session.");
+const facultyAttendanceSaveSchema = z.object({
+  courseId: z.string().uuid(),
+  sessionId: z.string().uuid().optional(),
+  sessionDate: z.string().date(),
+  startTime: z.union([z.string().regex(/^(?:[01]\d|2[0-3]):[0-5]\d$/), z.literal("")]).default(""),
+  endTime: z.union([z.string().regex(/^(?:[01]\d|2[0-3]):[0-5]\d$/), z.literal("")]).default(""),
+  records: z.array(z.object({
+    studentUserId: z.string().trim().min(1).max(100),
+    status: z.enum(["Present", "Absent"]),
+  })).min(1).max(1000),
+}).superRefine((input, context) => {
+  const studentIds = input.records.map((record) => record.studentUserId);
+  if (new Set(studentIds).size !== studentIds.length) {
+    context.addIssue({ code: "custom", path: ["records"], message: "Each enrolled student can be marked only once." });
+  }
+  if (input.startTime && input.endTime && input.startTime >= input.endTime) {
+    context.addIssue({ code: "custom", path: ["endTime"], message: "End time must be after start time." });
+  }
+});
 const courseCreateSchema = z.object({
   code: z.string().trim().min(2).max(24).transform((code) => code.toUpperCase()),
   name: z.string().trim().min(2).max(120),
@@ -548,13 +571,31 @@ export const getStudentAttendanceFn = createServerFn({ method: "GET" }).handler(
   const { requireCampusUser } = await import("./server/auth.server");
   const { getDb } = await import("./server/db.server");
   const user = await requireCampusUser("Student");
-  return getDb()
-    .prepare(
-      `SELECT course_code AS code, subject, attended, total FROM attendance
-      WHERE student_id = ? ORDER BY course_code`,
-    )
-    .all(user.id) as { code: string; subject: string; attended: number; total: number }[];
+  return getStudentAttendanceRecords(getDb(), user.id);
 });
+
+function getStudentAttendanceRecords(
+  db: import("node:sqlite").DatabaseSync,
+  studentUserId: string,
+) {
+  return db.prepare(`
+    WITH session_totals AS (
+      SELECT c.code, MAX(c.name) AS subject,
+        SUM(CASE WHEN r.status = 'Present' THEN 1 ELSE 0 END) AS attended,
+        COUNT(*) AS total
+      FROM attendance_records r
+      JOIN attendance_sessions s ON s.id = r.session_id AND s.course_id = r.course_id
+      JOIN courses c ON c.id = s.course_id
+      WHERE r.student_user_id = ?
+      GROUP BY c.code
+    )
+    SELECT course_code AS code, subject, attended, total FROM attendance
+    WHERE student_id = ? AND course_code NOT IN (SELECT code FROM session_totals)
+    UNION ALL
+    SELECT code, subject, attended, total FROM session_totals
+    ORDER BY code
+  `).all(studentUserId, studentUserId) as { code: string; subject: string; attended: number; total: number }[];
+}
 
 export const getStudentAssignmentsFn = createServerFn({ method: "GET" }).handler(async () => {
   const { requireCampusUser } = await import("./server/auth.server");
@@ -717,11 +758,11 @@ export const getStudentDashboardFn = createServerFn({ method: "GET" }).handler(a
   const { randomUUID } = await import("node:crypto");
   const user = await requireCampusUser("Student");
   const db = getDb();
-  const totals = db
-    .prepare(
-      "SELECT COALESCE(SUM(attended), 0) AS attended, COALESCE(SUM(total), 0) AS total FROM attendance WHERE student_id = ?",
-    )
-    .get(user.id) as { attended: number; total: number };
+  const attendanceRecords = getStudentAttendanceRecords(db, user.id);
+  const totals = attendanceRecords.reduce(
+    (sum, record) => ({ attended: sum.attended + record.attended, total: sum.total + record.total }),
+    { attended: 0, total: 0 },
+  );
   const today = new Intl.DateTimeFormat("en-US", {
     weekday: "short",
     timeZone: "Asia/Kolkata",
@@ -1049,6 +1090,124 @@ export const getFacultyFoundationFn = createServerFn({ method: "GET" }).handler(
   };
 });
 
+export const getFacultyAttendanceDataFn = createServerFn({ method: "GET" })
+  .validator((input: unknown) => facultyAttendanceQuerySchema.parse(input))
+  .handler(async ({ data }) => {
+    const { requireCampusUser } = await import("./server/auth.server");
+    const { getDb } = await import("./server/db.server");
+    const faculty = await requireCampusUser("Faculty");
+    const db = getDb();
+    const courses = db.prepare(`
+      SELECT c.id, c.code, c.name, c.semester, c.section
+      FROM faculty_courses fc JOIN courses c ON c.id = fc.course_id
+      WHERE fc.faculty_user_id = ? AND c.status = 'Active'
+      ORDER BY c.code, c.semester, c.section
+    `).all(faculty.id) as { id: string; code: string; name: string; semester: string; section: string }[];
+    const selectedCourseId = data.courseId ?? courses[0]?.id ?? null;
+    if (!selectedCourseId) {
+      if (data.sessionId) throw new Error("Assign an active course before opening attendance.");
+      return { courses, selectedCourseId: null, students: [], sessions: [], selectedSession: null };
+    }
+    const course = courses.find((item) => item.id === selectedCourseId);
+    if (!course) throw new Error("This course is not assigned to your faculty account.");
+
+    const students = db.prepare(`
+      SELECT u.id AS userId, u.name, u.student_id AS studentId
+      FROM course_enrollments e JOIN users u ON u.id = e.student_user_id
+      WHERE e.course_id = ? AND u.role = 'Student'
+      ORDER BY u.name COLLATE NOCASE, u.student_id
+    `).all(course.id) as { userId: string; name: string; studentId: string | null }[];
+    const sessions = db.prepare(`
+      SELECT s.id, s.session_date AS sessionDate, s.start_time AS startTime,
+        s.end_time AS endTime, s.created_at AS createdAt,
+        SUM(CASE WHEN r.status = 'Present' THEN 1 ELSE 0 END) AS presentCount,
+        SUM(CASE WHEN r.status = 'Absent' THEN 1 ELSE 0 END) AS absentCount
+      FROM attendance_sessions s
+      LEFT JOIN attendance_records r ON r.session_id = s.id AND r.course_id = s.course_id
+      WHERE s.course_id = ?
+      GROUP BY s.id ORDER BY s.session_date DESC, s.created_at DESC
+    `).all(course.id) as { id: string; sessionDate: string; startTime: string | null; endTime: string | null; createdAt: string; presentCount: number; absentCount: number }[];
+
+    let selectedSession: { id: string; sessionDate: string; startTime: string | null; endTime: string | null; records: { studentUserId: string; status: "Present" | "Absent" }[] } | null = null;
+    if (data.sessionId) {
+      const session = db.prepare(`
+        SELECT id, session_date AS sessionDate, start_time AS startTime, end_time AS endTime
+        FROM attendance_sessions WHERE id = ? AND course_id = ?
+      `).get(data.sessionId, course.id) as { id: string; sessionDate: string; startTime: string | null; endTime: string | null } | undefined;
+      if (!session) throw new Error("Attendance session was not found for this assigned course.");
+      const records = db.prepare(`
+        SELECT r.student_user_id AS studentUserId, r.status
+        FROM attendance_records r
+        JOIN course_enrollments e ON e.course_id = r.course_id AND e.student_user_id = r.student_user_id
+        WHERE r.session_id = ? AND r.course_id = ?
+      `).all(session.id, course.id) as { studentUserId: string; status: "Present" | "Absent" }[];
+      selectedSession = { ...session, records };
+    }
+    return { courses, selectedCourseId: course.id, course, students, sessions, selectedSession };
+  });
+
+export const saveFacultyAttendanceFn = createServerFn({ method: "POST" })
+  .validator((input: unknown) => facultyAttendanceSaveSchema.parse(input))
+  .handler(async ({ data }) => {
+    const { requireCampusUser } = await import("./server/auth.server");
+    const { getDb } = await import("./server/db.server");
+    const { randomUUID } = await import("node:crypto");
+    const faculty = await requireCampusUser("Faculty");
+    const db = getDb();
+    const sessionId = data.sessionId ?? randomUUID();
+    const now = new Date().toISOString();
+    db.exec("BEGIN IMMEDIATE");
+    try {
+      const assignment = db.prepare(`
+        SELECT 1 AS allowed FROM faculty_courses fc
+        JOIN courses c ON c.id = fc.course_id
+        WHERE fc.faculty_user_id = ? AND fc.course_id = ? AND c.status = 'Active'
+      `).get(faculty.id, data.courseId);
+      if (!assignment) throw new Error("This course is not assigned to your faculty account.");
+
+      const enrolledStudents = db.prepare(`
+        SELECT e.student_user_id AS userId FROM course_enrollments e
+        JOIN users u ON u.id = e.student_user_id AND u.role = 'Student'
+        WHERE e.course_id = ?
+      `).all(data.courseId) as { userId: string }[];
+      if (enrolledStudents.length === 0) throw new Error("Enroll students in this course before taking attendance.");
+      const enrolledIds = new Set(enrolledStudents.map((student) => student.userId));
+      if (data.records.length !== enrolledIds.size || data.records.some((record) => !enrolledIds.has(record.studentUserId))) {
+        throw new Error("Mark each currently enrolled student exactly once.");
+      }
+
+      if (data.sessionId) {
+        const existing = db.prepare("SELECT id FROM attendance_sessions WHERE id = ? AND course_id = ?")
+          .get(data.sessionId, data.courseId);
+        if (!existing) throw new Error("Attendance session was not found for this assigned course.");
+        db.prepare(`
+          UPDATE attendance_sessions SET session_date = ?, start_time = ?, end_time = ?, updated_at = ?
+          WHERE id = ? AND course_id = ?
+        `).run(data.sessionDate, data.startTime || null, data.endTime || null, now, data.sessionId, data.courseId);
+      } else {
+        db.prepare(`
+          INSERT INTO attendance_sessions (id, course_id, faculty_user_id, session_date, start_time, end_time, created_at, updated_at)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        `).run(sessionId, data.courseId, faculty.id, data.sessionDate, data.startTime || null, data.endTime || null, now, now);
+      }
+
+      const upsert = db.prepare(`
+        INSERT INTO attendance_records (session_id, course_id, student_user_id, status, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?)
+        ON CONFLICT(session_id, student_user_id) DO UPDATE SET
+          status = excluded.status, updated_at = excluded.updated_at
+      `);
+      for (const record of data.records) {
+        upsert.run(sessionId, data.courseId, record.studentUserId, record.status, now, now);
+      }
+      db.exec("COMMIT");
+    } catch (error) {
+      db.exec("ROLLBACK");
+      throw error;
+    }
+    return { sessionId, created: !data.sessionId };
+  });
+
 export const askCampusAssistantFn = createServerFn({ method: "POST" })
   .validator((input: unknown) =>
     z.object({ question: z.string().trim().min(1).max(500) }).parse(input),
@@ -1096,9 +1255,7 @@ export const askCampusAssistantFn = createServerFn({ method: "POST" })
         : "There are no notices published yet. Check the Notices page again later.";
     }
     if (question.includes("attendance")) {
-      const rows = db
-        .prepare("SELECT subject, attended, total FROM attendance WHERE student_id = ?")
-        .all(user.id) as { subject: string; attended: number; total: number }[];
+      const rows = getStudentAttendanceRecords(db, user.id);
       const attended = rows.reduce((sum, row) => sum + row.attended, 0);
       const total = rows.reduce((sum, row) => sum + row.total, 0);
       return total
