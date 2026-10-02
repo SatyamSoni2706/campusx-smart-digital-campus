@@ -112,6 +112,21 @@ const courseUserSchema = z.object({
   courseId: z.string().uuid(),
   userId: z.string().trim().min(1).max(100),
 });
+const courseAssignmentSchema = z.object({
+  courseId: z.string().uuid(),
+  title: z.string().trim().min(3).max(160),
+  description: z.string().trim().max(5000).default(""),
+  due: z.string().date(),
+  maxMarks: z.number().finite().positive().max(1_000_000),
+});
+const assignmentGradeSchema = z.object({
+  courseAssignmentId: z.string().uuid(),
+  studentUserId: z.string().trim().min(1).max(100),
+  marks: z.number().finite().min(0).max(1_000_000),
+});
+const facultyAssignmentQuerySchema = z.object({
+  courseAssignmentId: z.string().uuid().optional(),
+});
 
 type EventView = {
   id: string;
@@ -604,12 +619,19 @@ export const getStudentAssignmentsFn = createServerFn({ method: "GET" }).handler
   return getDb()
     .prepare(
       `SELECT a.id, a.title, a.subject, a.code, a.due, a.status, a.faculty, a.marks,
+        ca.description, ca.max_marks AS maxMarks,
         s.filename AS submittedFilename, s.mime_type AS submittedMimeType,
         s.file_size_bytes AS submittedFileSizeBytes, s.storage_state AS submissionStorageState,
         s.submitted_at AS submittedAt
       FROM assignments a LEFT JOIN assignment_submissions s
         ON s.assignment_id = a.id AND s.student_id = a.student_id
-      WHERE a.student_id = ? ORDER BY a.due, a.title`,
+      LEFT JOIN course_assignments ca ON ca.id = a.course_assignment_id
+      WHERE a.student_id = ?
+        AND (a.course_assignment_id IS NULL OR EXISTS (
+          SELECT 1 FROM course_enrollments e
+          WHERE e.course_id = ca.course_id AND e.student_user_id = a.student_id
+        ))
+      ORDER BY a.due, a.title`,
     )
     .all(user.id) as {
     id: string;
@@ -620,6 +642,8 @@ export const getStudentAssignmentsFn = createServerFn({ method: "GET" }).handler
     status: "Pending" | "Submitted" | "Graded" | "Overdue";
     faculty: string;
     marks: string | null;
+    description: string | null;
+    maxMarks: number | null;
     submittedFilename: string | null;
     submittedMimeType: string | null;
     submittedFileSizeBytes: number | null;
@@ -640,7 +664,12 @@ export const submitAssignmentFn = createServerFn({ method: "POST" })
     db.exec("BEGIN IMMEDIATE");
     try {
       const assignment = db
-        .prepare("SELECT status FROM assignments WHERE id = ? AND student_id = ?")
+        .prepare(`SELECT a.status FROM assignments a
+          WHERE a.id = ? AND a.student_id = ?
+            AND (a.course_assignment_id IS NULL OR EXISTS (
+              SELECT 1 FROM course_assignments ca JOIN course_enrollments e ON e.course_id = ca.course_id
+              WHERE ca.id = a.course_assignment_id AND e.student_user_id = a.student_id
+            ))`)
         .get(data.assignmentId, user.id) as { status: string } | undefined;
       if (!assignment) throw new Error("Assignment was not found for your account.");
       if (assignment.status === "Graded") throw new Error("A graded assignment cannot be changed.");
@@ -816,14 +845,24 @@ export const getStudentDashboardFn = createServerFn({ method: "GET" }).handler(a
       (
         db
           .prepare(
-            "SELECT COUNT(*) AS count FROM assignments WHERE student_id = ? AND status = 'Pending' AND date(due) BETWEEN date('now') AND date('now', '+7 days')",
+            `SELECT COUNT(*) AS count FROM assignments a WHERE a.student_id = ? AND a.status = 'Pending'
+              AND date(a.due) BETWEEN date('now') AND date('now', '+7 days')
+              AND (a.course_assignment_id IS NULL OR EXISTS (
+                SELECT 1 FROM course_assignments ca JOIN course_enrollments e ON e.course_id = ca.course_id
+                WHERE ca.id = a.course_assignment_id AND e.student_user_id = a.student_id
+              ))`,
           )
           .get(user.id) as { count: number }
       ).count,
     ),
     pendingAssignmentItems: db
       .prepare(
-        "SELECT id, title, subject, code, due, status, faculty FROM assignments WHERE student_id = ? AND status = 'Pending' AND date(due) BETWEEN date('now') AND date('now', '+7 days') ORDER BY due LIMIT 5",
+        `SELECT a.id, a.title, a.subject, a.code, a.due, a.status, a.faculty FROM assignments a
+          WHERE a.student_id = ? AND a.status = 'Pending' AND date(a.due) BETWEEN date('now') AND date('now', '+7 days')
+          AND (a.course_assignment_id IS NULL OR EXISTS (
+            SELECT 1 FROM course_assignments ca JOIN course_enrollments e ON e.course_id = ca.course_id
+            WHERE ca.id = a.course_assignment_id AND e.student_user_id = a.student_id
+          )) ORDER BY a.due LIMIT 5`,
       )
       .all(user.id) as {
       id: string;
@@ -1034,6 +1073,32 @@ export const assignFacultyCourseFn = createServerFn({ method: "POST" })
     return { ok: true as const, alreadyAssigned: Number(result.changes) === 0 };
   });
 
+function ensureStudentCourseAssignmentRows(
+  db: import("node:sqlite").DatabaseSync,
+  courseId: string,
+  studentUserId: string,
+) {
+  const pending = db.prepare(`
+    SELECT ca.id AS courseAssignmentId, ca.title, ca.due, c.code, c.name AS subject,
+      u.name AS facultyName
+    FROM course_assignments ca
+    JOIN courses c ON c.id = ca.course_id
+    JOIN users u ON u.id = ca.faculty_user_id
+    WHERE ca.course_id = ?
+  `).all(courseId) as { courseAssignmentId: string; title: string; due: string; code: string; subject: string; facultyName: string }[];
+  const insert = db.prepare(`
+    INSERT OR IGNORE INTO assignments
+      (id, student_id, title, subject, code, due, status, faculty, marks, course_assignment_id)
+    VALUES (?, ?, ?, ?, ?, ?, 'Pending', ?, NULL, ?)
+  `);
+  for (const assignment of pending) {
+    insert.run(
+      globalThis.crypto.randomUUID(), studentUserId, assignment.title, assignment.subject,
+      assignment.code, assignment.due, assignment.facultyName, assignment.courseAssignmentId,
+    );
+  }
+}
+
 export const enrollStudentCourseFn = createServerFn({ method: "POST" })
   .validator((input: unknown) => courseUserSchema.parse(input))
   .handler(async ({ data }) => {
@@ -1045,9 +1110,19 @@ export const enrollStudentCourseFn = createServerFn({ method: "POST" })
     const course = db.prepare("SELECT id FROM courses WHERE id = ? AND status = 'Active'").get(data.courseId);
     if (!student) throw new Error("Student account was not found.");
     if (!course) throw new Error("Active course was not found.");
-    const result = db.prepare("INSERT OR IGNORE INTO course_enrollments (student_user_id, course_id) VALUES (?, ?)")
-      .run(data.userId, data.courseId);
-    return { ok: true as const, alreadyEnrolled: Number(result.changes) === 0 };
+    db.exec("BEGIN IMMEDIATE");
+    let alreadyEnrolled: boolean;
+    try {
+      const result = db.prepare("INSERT OR IGNORE INTO course_enrollments (student_user_id, course_id) VALUES (?, ?)")
+        .run(data.userId, data.courseId);
+      alreadyEnrolled = Number(result.changes) === 0;
+      ensureStudentCourseAssignmentRows(db, data.courseId, data.userId);
+      db.exec("COMMIT");
+    } catch (error) {
+      db.exec("ROLLBACK");
+      throw error;
+    }
+    return { ok: true as const, alreadyEnrolled };
   });
 
 export const getFacultyFoundationFn = createServerFn({ method: "GET" }).handler(async () => {
@@ -1072,14 +1147,9 @@ export const getFacultyFoundationFn = createServerFn({ method: "GET" }).handler(
     WHERE fc.faculty_user_id = ?
   `).get(user.id)?.["count"] ?? 0);
   const assignmentCount = Number(db.prepare(`
-    SELECT COUNT(*) AS count FROM (
-      SELECT DISTINCT a.code, a.title, a.due
-      FROM faculty_courses fc
-      JOIN courses c ON c.id = fc.course_id AND c.status = 'Active'
-      JOIN course_enrollments e ON e.course_id = c.id
-      JOIN assignments a ON a.code = c.code AND a.student_id = e.student_user_id
-      WHERE fc.faculty_user_id = ?
-    )
+    SELECT COUNT(*) AS count FROM course_assignments ca
+    JOIN faculty_courses fc ON fc.course_id = ca.course_id AND fc.faculty_user_id = ?
+    JOIN courses c ON c.id = ca.course_id AND c.status = 'Active'
   `).get(user.id)?.["count"] ?? 0);
   return {
     identity: { id: user.id, name: user.name, email: user.email, studentId: user.studentId },
@@ -1208,6 +1278,149 @@ export const saveFacultyAttendanceFn = createServerFn({ method: "POST" })
     return { sessionId, created: !data.sessionId };
   });
 
+export const getFacultyAssignmentsFn = createServerFn({ method: "GET" })
+  .validator((input: unknown) => facultyAssignmentQuerySchema.parse(input))
+  .handler(async ({ data }) => {
+    const { requireCampusUser } = await import("./server/auth.server");
+    const { getDb } = await import("./server/db.server");
+    const faculty = await requireCampusUser("Faculty");
+    const db = getDb();
+    const courses = db.prepare(`
+      SELECT c.id, c.code, c.name, c.semester, c.section
+      FROM faculty_courses fc JOIN courses c ON c.id = fc.course_id
+      WHERE fc.faculty_user_id = ? AND c.status = 'Active'
+      ORDER BY c.code, c.semester, c.section
+    `).all(faculty.id) as { id: string; code: string; name: string; semester: string; section: string }[];
+    const assignments = db.prepare(`
+      SELECT ca.id, ca.course_id AS courseId, ca.title, ca.description, ca.due,
+        ca.max_marks AS maxMarks, ca.created_at AS createdAt, c.code, c.name AS subject,
+        COUNT(a.id) AS totalStudents,
+        SUM(CASE WHEN s.id IS NOT NULL THEN 1 ELSE 0 END) AS submissionCount
+      FROM course_assignments ca
+      JOIN faculty_courses fc ON fc.course_id = ca.course_id AND fc.faculty_user_id = ?
+      JOIN courses c ON c.id = ca.course_id AND c.status = 'Active'
+      LEFT JOIN assignments a ON a.course_assignment_id = ca.id
+      LEFT JOIN assignment_submissions s ON s.assignment_id = a.id AND s.student_id = a.student_id
+      GROUP BY ca.id
+      ORDER BY ca.due DESC, ca.created_at DESC
+    `).all(faculty.id) as {
+      id: string; courseId: string; title: string; description: string; due: string;
+      maxMarks: number; createdAt: string; code: string; subject: string;
+      totalStudents: number; submissionCount: number;
+    }[];
+    const selectedAssignment = data.courseAssignmentId
+      ? assignments.find((assignment) => assignment.id === data.courseAssignmentId) ?? null
+      : null;
+    if (data.courseAssignmentId && !selectedAssignment) {
+      throw new Error("Assignment was not found in your assigned courses.");
+    }
+    const submissions = selectedAssignment ? db.prepare(`
+      SELECT a.id AS studentAssignmentId, u.id AS studentUserId, u.name AS studentName,
+        u.student_id AS studentId, a.status, a.marks, ca.max_marks AS maxMarks,
+        s.filename, s.mime_type AS mimeType, s.file_size_bytes AS fileSizeBytes,
+        s.storage_state AS storageState, s.submitted_at AS submittedAt
+      FROM assignments a
+      JOIN users u ON u.id = a.student_id AND u.role = 'Student'
+      JOIN course_enrollments e ON e.student_user_id = u.id AND e.course_id = ?
+      JOIN course_assignments ca ON ca.id = a.course_assignment_id
+      LEFT JOIN assignment_submissions s ON s.assignment_id = a.id AND s.student_id = a.student_id
+      WHERE a.course_assignment_id = ?
+      ORDER BY u.name COLLATE NOCASE, u.student_id
+    `).all(selectedAssignment.courseId, selectedAssignment.id) as {
+      studentAssignmentId: string; studentUserId: string; studentName: string;
+      studentId: string | null; status: string; marks: string | null; maxMarks: number;
+      filename: string | null; mimeType: string | null; fileSizeBytes: number | null;
+      storageState: string | null; submittedAt: string | null;
+    }[] : [];
+    return { courses, assignments, selectedAssignment, submissions };
+  });
+
+export const createFacultyAssignmentFn = createServerFn({ method: "POST" })
+  .validator((input: unknown) => courseAssignmentSchema.parse(input))
+  .handler(async ({ data }) => {
+    const { requireCampusUser } = await import("./server/auth.server");
+    const { getDb } = await import("./server/db.server");
+    const { randomUUID } = await import("node:crypto");
+    const faculty = await requireCampusUser("Faculty");
+    const db = getDb();
+    const id = randomUUID();
+    db.exec("BEGIN IMMEDIATE");
+    try {
+      const course = db.prepare(`
+        SELECT c.id, c.code, c.name FROM faculty_courses fc
+        JOIN courses c ON c.id = fc.course_id AND c.status = 'Active'
+        WHERE fc.faculty_user_id = ? AND c.id = ?
+      `).get(faculty.id, data.courseId) as { id: string; code: string; name: string } | undefined;
+      if (!course) throw new Error("This course is not assigned to your faculty account.");
+      db.prepare(`
+        INSERT INTO course_assignments
+          (id, course_id, faculty_user_id, title, description, due, max_marks, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `).run(id, course.id, faculty.id, data.title, data.description, data.due, data.maxMarks,
+        new Date().toISOString(), new Date().toISOString());
+      const students = db.prepare(`
+        SELECT e.student_user_id AS userId FROM course_enrollments e
+        JOIN users u ON u.id = e.student_user_id AND u.role = 'Student'
+        WHERE e.course_id = ?
+      `).all(course.id) as { userId: string }[];
+      const addStudentAssignment = db.prepare(`
+        INSERT INTO assignments
+          (id, student_id, title, subject, code, due, status, faculty, marks, course_assignment_id)
+        VALUES (?, ?, ?, ?, ?, ?, 'Pending', ?, NULL, ?)
+      `);
+      for (const student of students) {
+        addStudentAssignment.run(randomUUID(), student.userId, data.title, course.name, course.code,
+          data.due, faculty.name, id);
+      }
+      db.exec("COMMIT");
+    } catch (error) {
+      db.exec("ROLLBACK");
+      if (error instanceof Error && error.message.includes("UNIQUE constraint failed: course_assignments.course_id")) {
+        throw new Error("An assignment with this title and due date already exists for the course.");
+      }
+      throw error;
+    }
+    return { id, courseId: data.courseId, title: data.title, due: data.due, maxMarks: data.maxMarks };
+  });
+
+export const gradeFacultyAssignmentFn = createServerFn({ method: "POST" })
+  .validator((input: unknown) => assignmentGradeSchema.parse(input))
+  .handler(async ({ data }) => {
+    const { requireCampusUser } = await import("./server/auth.server");
+    const { getDb } = await import("./server/db.server");
+    const faculty = await requireCampusUser("Faculty");
+    const db = getDb();
+    db.exec("BEGIN IMMEDIATE");
+    try {
+      const assignment = db.prepare(`
+        SELECT ca.id, ca.max_marks AS maxMarks
+        FROM course_assignments ca JOIN faculty_courses fc ON fc.course_id = ca.course_id
+        JOIN courses c ON c.id = ca.course_id AND c.status = 'Active'
+        WHERE ca.id = ? AND fc.faculty_user_id = ?
+      `).get(data.courseAssignmentId, faculty.id) as { id: string; maxMarks: number } | undefined;
+      if (!assignment) throw new Error("Assignment was not found in your assigned courses.");
+      if (data.marks > assignment.maxMarks) throw new Error("Marks cannot exceed the assignment maximum.");
+      const studentAssignment = db.prepare(`
+        SELECT a.id FROM assignments a
+        JOIN users u ON u.id = a.student_id AND u.role = 'Student'
+        JOIN course_enrollments e ON e.student_user_id = a.student_id
+        JOIN course_assignments ca ON ca.id = a.course_assignment_id AND ca.course_id = e.course_id
+        JOIN assignment_submissions s ON s.assignment_id = a.id AND s.student_id = a.student_id
+        WHERE a.course_assignment_id = ? AND a.student_id = ?
+      `).get(data.courseAssignmentId, data.studentUserId) as { id: string } | undefined;
+      if (!studentAssignment) throw new Error("A submitted assignment for this enrolled student was not found.");
+      db.prepare("UPDATE assignments SET marks = ?, status = 'Graded' WHERE id = ? AND student_id = ?")
+        .run(String(data.marks), studentAssignment.id, data.studentUserId);
+      db.prepare("UPDATE course_assignments SET updated_at = ? WHERE id = ?")
+        .run(new Date().toISOString(), data.courseAssignmentId);
+      db.exec("COMMIT");
+      return { ok: true as const, marks: data.marks, maxMarks: assignment.maxMarks };
+    } catch (error) {
+      db.exec("ROLLBACK");
+      throw error;
+    }
+  });
+
 export const askCampusAssistantFn = createServerFn({ method: "POST" })
   .validator((input: unknown) =>
     z.object({ question: z.string().trim().min(1).max(500) }).parse(input),
@@ -1310,14 +1523,22 @@ export const askCampusAssistantFn = createServerFn({ method: "POST" })
       const assignmentCount = Number(
         (
           db
-            .prepare("SELECT COUNT(*) AS count FROM assignments WHERE student_id = ?")
+            .prepare(`SELECT COUNT(*) AS count FROM assignments a WHERE a.student_id = ?
+              AND (a.course_assignment_id IS NULL OR EXISTS (
+                SELECT 1 FROM course_assignments ca JOIN course_enrollments e ON e.course_id = ca.course_id
+                WHERE ca.id = a.course_assignment_id AND e.student_user_id = a.student_id
+              ))`)
             .get(user.id) as { count: number }
         ).count,
       );
       if (assignmentCount === 0) return "No assignment records are available yet.";
       const rows = db
         .prepare(
-          "SELECT title, subject, due FROM assignments WHERE student_id = ? AND status = 'Pending' ORDER BY due LIMIT 3",
+          `SELECT a.title, a.subject, a.due FROM assignments a WHERE a.student_id = ? AND a.status = 'Pending'
+            AND (a.course_assignment_id IS NULL OR EXISTS (
+              SELECT 1 FROM course_assignments ca JOIN course_enrollments e ON e.course_id = ca.course_id
+              WHERE ca.id = a.course_assignment_id AND e.student_user_id = a.student_id
+            )) ORDER BY a.due LIMIT 3`,
         )
         .all(user.id) as { title: string; subject: string; due: string }[];
       return rows.length

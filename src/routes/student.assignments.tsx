@@ -62,7 +62,7 @@ function AssignmentsPage() {
             <div className="text-sm text-muted-foreground">{a.subject} · {a.faculty}</div>
             <div className="mt-4 flex items-center justify-between">
               <span className="font-mono text-xs">Due {fmtDate(a.due)}</span>
-              {a.marks && <span className="font-display font-bold text-success">{a.marks}</span>}
+              {a.marks && <span className="font-display font-bold text-success">{a.marks}{a.maxMarks !== null ? ` / ${a.maxMarks}` : ""}</span>}
               {a.submittedFilename && <span className="text-xs text-muted-foreground">Record saved · {a.submittedFilename}</span>}
               {(a.status === "Pending" || a.status === "Overdue") && (
                 <label className={btn + " cursor-pointer"}>{submittingId === a.id ? "Saving…" : "Upload"}

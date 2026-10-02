@@ -222,6 +222,20 @@ function createSchema(db: DatabaseSync) {
       PRIMARY KEY (student_user_id, course_id)
     );
     CREATE INDEX IF NOT EXISTS course_enrollments_by_course ON course_enrollments(course_id);
+    CREATE TABLE IF NOT EXISTS course_assignments (
+      id TEXT PRIMARY KEY,
+      course_id TEXT NOT NULL REFERENCES courses(id) ON DELETE CASCADE,
+      faculty_user_id TEXT NOT NULL REFERENCES users(id),
+      title TEXT NOT NULL,
+      description TEXT NOT NULL DEFAULT '',
+      due TEXT NOT NULL,
+      max_marks REAL NOT NULL CHECK (max_marks >= 0),
+      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      UNIQUE (course_id, title, due)
+    );
+    CREATE INDEX IF NOT EXISTS course_assignments_by_course_due
+      ON course_assignments(course_id, due);
     CREATE TABLE IF NOT EXISTS attendance_sessions (
       id TEXT PRIMARY KEY,
       course_id TEXT NOT NULL REFERENCES courses(id) ON DELETE CASCADE,
@@ -280,6 +294,13 @@ function createSchema(db: DatabaseSync) {
   if (!assignmentColumns.has("marks")) {
     db.exec("ALTER TABLE assignments ADD COLUMN marks TEXT");
   }
+  if (!assignmentColumns.has("course_assignment_id")) {
+    db.exec("ALTER TABLE assignments ADD COLUMN course_assignment_id TEXT REFERENCES course_assignments(id) ON DELETE CASCADE");
+  }
+  db.exec(`
+    CREATE UNIQUE INDEX IF NOT EXISTS assignments_by_course_assignment_student
+      ON assignments(course_assignment_id, student_id) WHERE course_assignment_id IS NOT NULL
+  `);
 }
 
 function seedDemoData(db: DatabaseSync) {
