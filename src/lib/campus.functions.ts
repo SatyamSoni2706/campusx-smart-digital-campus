@@ -832,13 +832,8 @@ export const getAdminDashboardFn = createServerFn({ method: "GET" }).handler(asy
         }
       ).count,
     ),
-    totalFaculty: Number(
-      (
-        db.prepare("SELECT COUNT(*) AS count FROM users WHERE role = 'Faculty'").get() as {
-          count: number;
-        }
-      ).count,
-    ),
+    totalFaculty: Number((db.prepare("SELECT COUNT(*) AS count FROM users WHERE role = 'Faculty'").get() as { count: number }).count),
+    facultySource: "Registered Faculty accounts in users table",
     activeComplaints: Number(
       (
         db
@@ -860,19 +855,30 @@ export const getAdminDashboardFn = createServerFn({ method: "GET" }).handler(asy
         }
       ).count,
     ),
+    complaintStatusCounts: db
+      .prepare("SELECT status AS name, COUNT(*) AS value FROM complaints GROUP BY status ORDER BY value DESC, name")
+      .all() as { name: string; value: number }[],
     noticeCount: Number(
       (db.prepare("SELECT COUNT(*) AS count FROM notices").get() as { count: number }).count,
     ),
     avgResolutionDays: Number(
-      (
-        (
-          db
-            .prepare(
-              "SELECT AVG(julianday(updated_at) - julianday(created_at)) AS average FROM complaints WHERE status = 'Resolved'",
-            )
-            .get() as { average: number | null }
-        ).average ?? 0
-      ).toFixed(1),
+      ((db.prepare(`
+        SELECT AVG(julianday(COALESCE(
+          (SELECT MAX(h.created_at) FROM complaint_status_history h
+           WHERE h.complaint_id = c.id AND h.to_status = 'Resolved'),
+          c.updated_at
+        )) - julianday(c.created_at)) AS average
+        FROM complaints c WHERE c.status = 'Resolved'
+      `).get() as { average: number | null }).average ?? 0).toFixed(1),
+    ),
+    resolutionFallbackCount: Number(
+      (db.prepare(`
+        SELECT COUNT(*) AS count FROM complaints c
+        WHERE c.status = 'Resolved' AND NOT EXISTS (
+          SELECT 1 FROM complaint_status_history h
+          WHERE h.complaint_id = c.id AND h.to_status = 'Resolved'
+        )
+      `).get() as { count: number }).count,
     ),
     complaintCategories: db
       .prepare(
@@ -886,6 +892,13 @@ export const getAdminDashboardFn = createServerFn({ method: "GET" }).handler(asy
           .get(new Date().toISOString().slice(0, 10)) as { count: number }
       ).count,
     ),
+    totalEvents: Number((db.prepare("SELECT COUNT(*) AS count FROM events").get() as { count: number }).count),
+    totalEventRegistrations: Number((db.prepare("SELECT COUNT(*) AS count FROM event_registrations WHERE status = 'Registered'").get() as { count: number }).count),
+    eventRegistrationCounts: db.prepare(`
+      SELECT e.id, e.title, COUNT(r.id) AS registrations
+      FROM events e LEFT JOIN event_registrations r ON r.event_id = e.id AND r.status = 'Registered'
+      GROUP BY e.id, e.title ORDER BY e.date, e.title
+    `).all() as { id: string; title: string; registrations: number }[],
     recentComplaints: db
       .prepare(
         `SELECT c.id, c.title, c.category, c.description, c.location, c.priority, c.status,
@@ -896,6 +909,29 @@ export const getAdminDashboardFn = createServerFn({ method: "GET" }).handler(asy
       )
       .all() as ComplaintRow[],
   };
+});
+
+export const getAdminStudentsFn = createServerFn({ method: "GET" }).handler(async () => {
+  const { requireCampusUser } = await import("./server/auth.server");
+  const { getDb } = await import("./server/db.server");
+  await requireCampusUser("Admin");
+  const db = getDb();
+  const students = db.prepare(`
+    SELECT name, student_id AS studentId, email
+    FROM users WHERE role = 'Student'
+    ORDER BY name COLLATE NOCASE, student_id
+  `).all() as { name: string; studentId: string | null; email: string }[];
+  return { students, totalStudents: students.length };
+});
+
+export const getAdminFacultyFn = createServerFn({ method: "GET" }).handler(async () => {
+  const { requireCampusUser } = await import("./server/auth.server");
+  const { getDb } = await import("./server/db.server");
+  await requireCampusUser("Admin");
+  const faculty = getDb().prepare(`
+    SELECT name, email FROM users WHERE role = 'Faculty' ORDER BY name COLLATE NOCASE
+  `).all() as { name: string; email: string }[];
+  return { faculty };
 });
 
 export const askCampusAssistantFn = createServerFn({ method: "POST" })
