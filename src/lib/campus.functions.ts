@@ -889,28 +889,8 @@ export const getStudentNotificationsFn = createServerFn({ method: "GET" }).handl
   async (): Promise<StudentNotification[]> => {
     const { requireCampusUser } = await import("./server/auth.server");
     const { getDb } = await import("./server/db.server");
-    const { notifications: demoNotifications } = await import("@/data/mock");
     const user = await requireCampusUser("Student");
     const db = getDb();
-    const insert = db.prepare(
-      `INSERT OR IGNORE INTO notifications
-        (id, user_id, title, body, type, time_label, created_at, read_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-    );
-    const seedTime = Date.now();
-    demoNotifications.forEach((notification, index) => {
-      const createdAt = new Date(seedTime - index * 1000).toISOString();
-      insert.run(
-        notification.id,
-        user.id,
-        notification.title,
-        notification.body,
-        notification.type,
-        notification.time,
-        createdAt,
-        notification.read ? createdAt : null,
-      );
-    });
     const rows = db
       .prepare(
         `SELECT id, title, body, time_label AS time, read_at IS NOT NULL AS isRead, type
@@ -947,7 +927,6 @@ export const setStudentNotificationsReadFn = createServerFn({ method: "POST" })
 export const getStudentDashboardFn = createServerFn({ method: "GET" }).handler(async () => {
   const { requireCampusUser } = await import("./server/auth.server");
   const { getDb } = await import("./server/db.server");
-  const { randomUUID } = await import("node:crypto");
   const user = await requireCampusUser("Student");
   const db = getDb();
   const attendanceRecords = getStudentAttendanceRecords(db, user.id);
@@ -1046,6 +1025,17 @@ export const getStudentDashboardFn = createServerFn({ method: "GET" }).handler(a
         )
         .all() as (Omit<Notice, "read"> & { read: number })[]
     ).map((row) => ({ ...row, read: Boolean(row.read) })),
+    latestNotifications: db
+      .prepare(
+        `SELECT id, title, body, type, time_label AS time, read_at IS NOT NULL AS isRead
+        FROM notifications WHERE user_id = ? ORDER BY created_at DESC, id DESC LIMIT 3`,
+      )
+      .all(user.id)
+      .map((value) => {
+        const row = value as Omit<StudentNotification, "read"> & { isRead: number };
+        const { isRead, ...notification } = row;
+        return { ...notification, read: Boolean(isRead) };
+      }),
     upcomingEvents: db
       .prepare(
         "SELECT id, title, date, time, venue, organizer, description, category, seats, registered, 0 AS isRegistered FROM events WHERE date >= ? ORDER BY date LIMIT 3",
