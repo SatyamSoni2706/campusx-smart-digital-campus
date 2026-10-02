@@ -32,6 +32,7 @@ import { Route as FacultyIndexRouteImport } from './routes/faculty.index'
 import { Route as FacultyAssignmentsRouteImport } from './routes/faculty.assignments'
 import { Route as FacultyAttendanceRouteImport } from './routes/faculty.attendance'
 import { Route as FacultyClassesRouteImport } from './routes/faculty.classes'
+import { Route as FacultyEventsRouteImport } from './routes/faculty.events'
 import { Route as FacultyIssuesRouteImport } from './routes/faculty.issues'
 import { Route as FacultyNoticesRouteImport } from './routes/faculty.notices'
 import { Route as FacultyProfileRouteImport } from './routes/faculty.profile'
@@ -162,6 +163,11 @@ const FacultyClassesRoute = FacultyClassesRouteImport.update({
   path: '/classes',
   getParentRoute: () => FacultyRoute,
 } as any)
+const FacultyEventsRoute = FacultyEventsRouteImport.update({
+  id: '/events',
+  path: '/events',
+  getParentRoute: () => FacultyRoute,
+} as any)
 const FacultyIssuesRoute = FacultyIssuesRouteImport.update({
   id: '/issues',
   path: '/issues',
@@ -255,6 +261,7 @@ export interface FileRoutesByFullPath {
   '/faculty/assignments': typeof FacultyAssignmentsRoute
   '/faculty/attendance': typeof FacultyAttendanceRoute
   '/faculty/classes': typeof FacultyClassesRoute
+  '/faculty/events': typeof FacultyEventsRoute
   '/faculty/issues': typeof FacultyIssuesRoute
   '/faculty/notices': typeof FacultyNoticesRoute
   '/faculty/profile': typeof FacultyProfileRoute
@@ -291,6 +298,7 @@ export interface FileRoutesByTo {
   '/faculty/assignments': typeof FacultyAssignmentsRoute
   '/faculty/attendance': typeof FacultyAttendanceRoute
   '/faculty/classes': typeof FacultyClassesRoute
+  '/faculty/events': typeof FacultyEventsRoute
   '/faculty/issues': typeof FacultyIssuesRoute
   '/faculty/notices': typeof FacultyNoticesRoute
   '/faculty/profile': typeof FacultyProfileRoute
@@ -331,6 +339,7 @@ export interface FileRoutesById {
   '/faculty/assignments': typeof FacultyAssignmentsRoute
   '/faculty/attendance': typeof FacultyAttendanceRoute
   '/faculty/classes': typeof FacultyClassesRoute
+  '/faculty/events': typeof FacultyEventsRoute
   '/faculty/issues': typeof FacultyIssuesRoute
   '/faculty/notices': typeof FacultyNoticesRoute
   '/faculty/profile': typeof FacultyProfileRoute
@@ -372,6 +381,7 @@ export interface FileRouteTypes {
     | '/faculty/assignments'
     | '/faculty/attendance'
     | '/faculty/classes'
+    | '/faculty/events'
     | '/faculty/issues'
     | '/faculty/notices'
     | '/faculty/profile'
@@ -408,6 +418,7 @@ export interface FileRouteTypes {
     | '/faculty/assignments'
     | '/faculty/attendance'
     | '/faculty/classes'
+    | '/faculty/events'
     | '/faculty/issues'
     | '/faculty/notices'
     | '/faculty/profile'
@@ -447,6 +458,7 @@ export interface FileRouteTypes {
     | '/faculty/assignments'
     | '/faculty/attendance'
     | '/faculty/classes'
+    | '/faculty/events'
     | '/faculty/issues'
     | '/faculty/notices'
     | '/faculty/profile'
@@ -640,6 +652,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof FacultyClassesRouteImport
       parentRoute: typeof FacultyRoute
     }
+    '/faculty/events': {
+      id: '/faculty/events'
+      path: '/events'
+      fullPath: '/faculty/events'
+      preLoaderRoute: typeof FacultyEventsRouteImport
+      parentRoute: typeof FacultyRoute
+    }
     '/faculty/issues': {
       id: '/faculty/issues'
       path: '/issues'
@@ -773,6 +792,7 @@ interface FacultyRouteChildren {
   FacultyAssignmentsRoute: typeof FacultyAssignmentsRoute
   FacultyAttendanceRoute: typeof FacultyAttendanceRoute
   FacultyClassesRoute: typeof FacultyClassesRoute
+  FacultyEventsRoute: typeof FacultyEventsRoute
   FacultyIssuesRoute: typeof FacultyIssuesRoute
   FacultyNoticesRoute: typeof FacultyNoticesRoute
   FacultyProfileRoute: typeof FacultyProfileRoute
@@ -783,6 +803,7 @@ const FacultyRouteChildren: FacultyRouteChildren = {
   FacultyAssignmentsRoute: FacultyAssignmentsRoute,
   FacultyAttendanceRoute: FacultyAttendanceRoute,
   FacultyClassesRoute: FacultyClassesRoute,
+  FacultyEventsRoute: FacultyEventsRoute,
   FacultyIssuesRoute: FacultyIssuesRoute,
   FacultyNoticesRoute: FacultyNoticesRoute,
   FacultyProfileRoute: FacultyProfileRoute,

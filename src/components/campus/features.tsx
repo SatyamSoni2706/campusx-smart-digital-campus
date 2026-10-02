@@ -311,11 +311,13 @@ type EventInput = Omit<EventRecord, "id" | "registered" | "isRegistered" | "cate
 
 export function EventsBoard({
   manage,
+  readOnly,
   initialItems = [],
   onToggle,
   onCreate,
 }: {
   manage?: boolean;
+  readOnly?: boolean;
   initialItems?: EventRecord[];
   onToggle?: (id: string, registered: boolean) => Promise<EventRecord>;
   onCreate?: (data: EventInput) => Promise<EventRecord>;
@@ -373,7 +375,7 @@ export function EventsBoard({
   }
   return (
     <>
-      {manage && <div className="mb-4 flex justify-end"><button className={btn} onClick={() => setCreating(true)}><Plus className="size-4" />New event</button></div>}
+      {manage && !readOnly && <div className="mb-4 flex justify-end"><button className={btn} onClick={() => setCreating(true)}><Plus className="size-4" />New event</button></div>}
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
         {items.map((e) => {
           const full = e.registered >= e.seats && !e.isRegistered;
@@ -399,7 +401,7 @@ export function EventsBoard({
               <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-border"><div className="h-full bg-primary" style={{ width: `${Math.min(100, (e.registered / e.seats) * 100)}%` }} /></div>
               <div className="mt-4 flex items-center justify-between">
                 <StatusBadge value={e.isRegistered ? "Registered" : full ? "Full" : "Open"} />
-                {!manage && (
+                {!manage && !readOnly && (
                   <button disabled={full || savingId === e.id} onClick={() => void toggle(e.id)} className={e.isRegistered ? btnGhost : btn}>
                     {savingId === e.id ? "Saving…" : e.isRegistered ? "Cancel" : full ? "Full" : "Register"}
                   </button>

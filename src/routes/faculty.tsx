@@ -1,6 +1,7 @@
 import { createFileRoute, redirect } from "@tanstack/react-router";
 import {
   BookOpen,
+  CalendarDays,
   CheckCircle2,
   FileText,
   LayoutDashboard,
@@ -16,6 +17,7 @@ const nav: NavItem[] = [
   { to: "/faculty/classes", label: "Classes", icon: BookOpen },
   { to: "/faculty/attendance", label: "Attendance", icon: CheckCircle2 },
   { to: "/faculty/assignments", label: "Assignments", icon: FileText },
+  { to: "/faculty/events", label: "Events", icon: CalendarDays },
   { to: "/faculty/notices", label: "Notices", icon: Megaphone },
   { to: "/faculty/issues", label: "Student Issues", icon: MessageSquareWarning },
   { to: "/faculty/profile", label: "Profile", icon: User },

@@ -293,12 +293,8 @@ export const updateComplaintFn = createServerFn({ method: "POST" })
     return toComplaintRecord(db, row);
   });
 
-export const listNoticesFn = createServerFn({ method: "GET" }).handler(async () => {
-  const { requireCampusUser } = await import("./server/auth.server");
-  const { getDb } = await import("./server/db.server");
-  const { randomUUID } = await import("node:crypto");
-  await requireCampusUser();
-  const rows = getDb()
+function listNoticeRecords(db: import("node:sqlite").DatabaseSync) {
+  const rows = db
     .prepare(
       `SELECT id, title, category, description, priority, department, date,
       read, updated_at AS updatedAt
@@ -306,6 +302,20 @@ export const listNoticesFn = createServerFn({ method: "GET" }).handler(async () 
     )
     .all() as (Omit<NoticeRow, "read"> & { read: number })[];
   return rows.map((row) => ({ ...row, read: Boolean(row.read) }));
+}
+
+export const listNoticesFn = createServerFn({ method: "GET" }).handler(async () => {
+  const { requireCampusUser } = await import("./server/auth.server");
+  const { getDb } = await import("./server/db.server");
+  await requireCampusUser();
+  return listNoticeRecords(getDb());
+});
+
+export const listFacultyNoticesFn = createServerFn({ method: "GET" }).handler(async () => {
+  const { requireCampusUser } = await import("./server/auth.server");
+  const { getDb } = await import("./server/db.server");
+  await requireCampusUser("Faculty");
+  return listNoticeRecords(getDb());
 });
 
 export const createNoticeFn = createServerFn({ method: "POST" })
@@ -394,7 +404,8 @@ export const listEventsFn = createServerFn({ method: "GET" }).handler(async () =
   const { requireCampusUser } = await import("./server/auth.server");
   const { getDb } = await import("./server/db.server");
   const user = await requireCampusUser();
-  if (user.role !== "Student" && user.role !== "Admin")
+  if (user.role === "Faculty") await requireCampusUser("Faculty");
+  else if (user.role !== "Student" && user.role !== "Admin")
     throw new Error("You do not have access to events.");
   const db = getDb();
   const rows = db.prepare("SELECT id FROM events ORDER BY date, title").all() as { id: string }[];
