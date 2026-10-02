@@ -1,18 +1,32 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { PageHeader, Panel, Stat, StatusBadge, inputCls } from "@/components/campus/ui";
-import { PublicLayout } from "@/components/campus/PublicLayout";
+import { EmptyState, PageHeader, Panel, Stat } from "@/components/campus/ui";
+import { getFacultyFoundationFn } from "@/lib/campus.functions";
 import { seo } from "@/lib/seo";
-import * as D from "@/data/mock";
 
 export const Route = createFileRoute("/faculty/")({
-  head: () => seo("Faculty Dashboard", "Your classes and tasks."),
+  head: () => seo("Faculty Dashboard", "Your assigned courses and academic activity."),
+  loader: () => getFacultyFoundationFn(),
+  pendingComponent: () => <p className="py-8 text-sm text-muted-foreground">Loading faculty dashboard…</p>,
+  errorComponent: ({ error }) => <p className="py-8 text-sm text-danger">Could not load faculty dashboard: {String(error)}</p>,
   component: PFacultyIndex,
 });
 
 function PFacultyIndex() {
+  const data = Route.useLoaderData();
   return (
     <>
-      <PageHeader eyebrow="Welcome back" title={D.currentFaculty.name} /><div className="grid grid-cols-2 gap-3 xl:grid-cols-3"><Stat label="Classes" value={D.facultyClasses.length} /><Stat label="Students" value={D.facultyClasses.reduce((s, c) => s + c.students, 0)} /><Stat label="Open issues" value={D.complaints.filter((c) => c.status !== "Resolved").length} tone="warning" hint="from students" /></div><Panel className="mt-4"><h2 className="mb-3 text-lg font-bold">My classes</h2>{D.facultyClasses.map((c) => (<div key={c.section} className="border-b py-2.5 last:border-0"><div className="font-semibold">{c.name} · {c.section}</div><div className="font-mono text-[11px] text-muted-foreground">{c.schedule} · {c.room}</div></div>))}</Panel>
+      <PageHeader eyebrow="Welcome back" title={data.identity.name} desc={data.identity.email} />
+      <div className="grid grid-cols-2 gap-3 xl:grid-cols-3">
+        <Stat label="Assigned courses" value={data.totalCourses} />
+        <Stat label="Enrolled students" value={data.totalStudents} />
+        <Stat label="Assignments in enrolled courses" value={data.assignmentCount} />
+      </div>
+      <Panel className="mt-4">
+        <div className="mb-3 flex items-center justify-between gap-3"><h2 className="text-lg font-bold">My courses</h2><Link to="/faculty/classes" className="text-sm font-semibold text-primary">View all</Link></div>
+        {data.courses.length === 0 ? <EmptyState title="No courses assigned" desc="Ask an administrator to create courses and assign them to your faculty account." /> : (
+          <div className="divide-y">{data.courses.slice(0, 5).map((course) => <div key={course.id} className="flex flex-wrap items-center justify-between gap-2 py-3"><div><div className="font-semibold">{course.name}</div><div className="font-mono text-[11px] text-muted-foreground">{course.code}{course.section ? ` · ${course.section}` : ""}{course.semester ? ` · ${course.semester}` : ""}</div></div><span className="text-sm text-muted-foreground">{course.studentCount} enrolled</span></div>)}</div>
+        )}
+      </Panel>
     </>
   );
 }

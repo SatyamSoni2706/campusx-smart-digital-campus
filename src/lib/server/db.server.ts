@@ -197,6 +197,31 @@ function createSchema(db: DatabaseSync) {
       attended INTEGER NOT NULL,
       total INTEGER NOT NULL
     );
+    CREATE TABLE IF NOT EXISTS courses (
+      id TEXT PRIMARY KEY,
+      code TEXT NOT NULL,
+      name TEXT NOT NULL,
+      semester TEXT NOT NULL DEFAULT '',
+      section TEXT NOT NULL DEFAULT '',
+      status TEXT NOT NULL DEFAULT 'Active' CHECK (status IN ('Active', 'Inactive')),
+      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      UNIQUE (code, semester, section)
+    );
+    CREATE TABLE IF NOT EXISTS faculty_courses (
+      faculty_user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      course_id TEXT NOT NULL REFERENCES courses(id) ON DELETE CASCADE,
+      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      PRIMARY KEY (faculty_user_id, course_id)
+    );
+    CREATE INDEX IF NOT EXISTS faculty_courses_by_course ON faculty_courses(course_id);
+    CREATE TABLE IF NOT EXISTS course_enrollments (
+      student_user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      course_id TEXT NOT NULL REFERENCES courses(id) ON DELETE CASCADE,
+      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      PRIMARY KEY (student_user_id, course_id)
+    );
+    CREATE INDEX IF NOT EXISTS course_enrollments_by_course ON course_enrollments(course_id);
   `);
 
   // Existing SQLite files may have the original event_registrations schema.

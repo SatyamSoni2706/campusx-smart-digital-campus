@@ -79,6 +79,16 @@ const notificationReadSchema = z.discriminatedUnion("mode", [
   z.object({ mode: z.literal("one"), id: z.string().min(1).max(100) }),
   z.object({ mode: z.literal("all") }),
 ]);
+const courseCreateSchema = z.object({
+  code: z.string().trim().min(2).max(24).transform((code) => code.toUpperCase()),
+  name: z.string().trim().min(2).max(120),
+  semester: z.string().trim().max(40).default(""),
+  section: z.string().trim().max(40).default(""),
+});
+const courseUserSchema = z.object({
+  courseId: z.string().uuid(),
+  userId: z.string().trim().min(1).max(100),
+});
 
 type EventView = {
   id: string;
@@ -928,10 +938,115 @@ export const getAdminFacultyFn = createServerFn({ method: "GET" }).handler(async
   const { requireCampusUser } = await import("./server/auth.server");
   const { getDb } = await import("./server/db.server");
   await requireCampusUser("Admin");
-  const faculty = getDb().prepare(`
-    SELECT name, email FROM users WHERE role = 'Faculty' ORDER BY name COLLATE NOCASE
-  `).all() as { name: string; email: string }[];
-  return { faculty };
+  const db = getDb();
+  const faculty = db.prepare(`
+    SELECT id, name, email FROM users WHERE role = 'Faculty' ORDER BY name COLLATE NOCASE
+  `).all() as { id: string; name: string; email: string }[];
+  const students = db.prepare(`
+    SELECT id, name, student_id AS studentId, email FROM users
+    WHERE role = 'Student' ORDER BY name COLLATE NOCASE
+  `).all() as { id: string; name: string; studentId: string | null; email: string }[];
+  const courses = db.prepare(`
+    SELECT c.id, c.code, c.name, c.semester, c.section, c.status,
+      COUNT(DISTINCT e.student_user_id) AS studentCount,
+      (SELECT GROUP_CONCAT(u.name, ', ') FROM faculty_courses fc
+       JOIN users u ON u.id = fc.faculty_user_id WHERE fc.course_id = c.id) AS facultyNames
+    FROM courses c LEFT JOIN course_enrollments e ON e.course_id = c.id
+    GROUP BY c.id ORDER BY c.code, c.semester, c.section
+  `).all() as { id: string; code: string; name: string; semester: string; section: string; status: string; studentCount: number; facultyNames: string | null }[];
+  return { faculty, students, courses };
+});
+
+export const createCourseFn = createServerFn({ method: "POST" })
+  .validator((input: unknown) => courseCreateSchema.parse(input))
+  .handler(async ({ data }) => {
+    const { requireCampusUser } = await import("./server/auth.server");
+    const { getDb } = await import("./server/db.server");
+    const { randomUUID } = await import("node:crypto");
+    await requireCampusUser("Admin");
+    const db = getDb();
+    const id = randomUUID();
+    try {
+      db.prepare("INSERT INTO courses (id, code, name, semester, section) VALUES (?, ?, ?, ?, ?)")
+        .run(id, data.code, data.name, data.semester, data.section);
+    } catch (error) {
+      if (error instanceof Error && error.message.includes("UNIQUE constraint failed"))
+        throw new Error("A course with this code, semester, and section already exists.");
+      throw error;
+    }
+    return { id, ...data, status: "Active" as const, studentCount: 0 };
+  });
+
+export const assignFacultyCourseFn = createServerFn({ method: "POST" })
+  .validator((input: unknown) => courseUserSchema.parse(input))
+  .handler(async ({ data }) => {
+    const { requireCampusUser } = await import("./server/auth.server");
+    const { getDb } = await import("./server/db.server");
+    await requireCampusUser("Admin");
+    const db = getDb();
+    const faculty = db.prepare("SELECT id FROM users WHERE id = ? AND role = 'Faculty'").get(data.userId);
+    const course = db.prepare("SELECT id FROM courses WHERE id = ? AND status = 'Active'").get(data.courseId);
+    if (!faculty) throw new Error("Faculty account was not found.");
+    if (!course) throw new Error("Active course was not found.");
+    const result = db.prepare("INSERT OR IGNORE INTO faculty_courses (faculty_user_id, course_id) VALUES (?, ?)")
+      .run(data.userId, data.courseId);
+    return { ok: true as const, alreadyAssigned: Number(result.changes) === 0 };
+  });
+
+export const enrollStudentCourseFn = createServerFn({ method: "POST" })
+  .validator((input: unknown) => courseUserSchema.parse(input))
+  .handler(async ({ data }) => {
+    const { requireCampusUser } = await import("./server/auth.server");
+    const { getDb } = await import("./server/db.server");
+    await requireCampusUser("Admin");
+    const db = getDb();
+    const student = db.prepare("SELECT id FROM users WHERE id = ? AND role = 'Student'").get(data.userId);
+    const course = db.prepare("SELECT id FROM courses WHERE id = ? AND status = 'Active'").get(data.courseId);
+    if (!student) throw new Error("Student account was not found.");
+    if (!course) throw new Error("Active course was not found.");
+    const result = db.prepare("INSERT OR IGNORE INTO course_enrollments (student_user_id, course_id) VALUES (?, ?)")
+      .run(data.userId, data.courseId);
+    return { ok: true as const, alreadyEnrolled: Number(result.changes) === 0 };
+  });
+
+export const getFacultyFoundationFn = createServerFn({ method: "GET" }).handler(async () => {
+  const { requireCampusUser } = await import("./server/auth.server");
+  const { getDb } = await import("./server/db.server");
+  const user = await requireCampusUser("Faculty");
+  const db = getDb();
+  const courses = db.prepare(`
+    SELECT c.id, c.code, c.name, c.semester, c.section,
+      COUNT(DISTINCT e.student_user_id) AS studentCount
+    FROM faculty_courses fc
+    JOIN courses c ON c.id = fc.course_id AND c.status = 'Active'
+    LEFT JOIN course_enrollments e ON e.course_id = c.id
+    WHERE fc.faculty_user_id = ?
+    GROUP BY c.id ORDER BY c.code, c.semester, c.section
+  `).all(user.id) as { id: string; code: string; name: string; semester: string; section: string; studentCount: number }[];
+  const totalStudents = Number(db.prepare(`
+    SELECT COUNT(DISTINCT e.student_user_id) AS count
+    FROM faculty_courses fc
+    JOIN courses c ON c.id = fc.course_id AND c.status = 'Active'
+    JOIN course_enrollments e ON e.course_id = c.id
+    WHERE fc.faculty_user_id = ?
+  `).get(user.id)?.["count"] ?? 0);
+  const assignmentCount = Number(db.prepare(`
+    SELECT COUNT(*) AS count FROM (
+      SELECT DISTINCT a.code, a.title, a.due
+      FROM faculty_courses fc
+      JOIN courses c ON c.id = fc.course_id AND c.status = 'Active'
+      JOIN course_enrollments e ON e.course_id = c.id
+      JOIN assignments a ON a.code = c.code AND a.student_id = e.student_user_id
+      WHERE fc.faculty_user_id = ?
+    )
+  `).get(user.id)?.["count"] ?? 0);
+  return {
+    identity: { id: user.id, name: user.name, email: user.email, studentId: user.studentId },
+    courses,
+    totalCourses: courses.length,
+    totalStudents,
+    assignmentCount,
+  };
 });
 
 export const askCampusAssistantFn = createServerFn({ method: "POST" })
