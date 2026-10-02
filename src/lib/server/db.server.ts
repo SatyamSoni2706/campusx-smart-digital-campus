@@ -61,7 +61,8 @@ function createSchema(db: DatabaseSync) {
       status TEXT NOT NULL CHECK (status IN ('Submitted', 'Under Review', 'Assigned', 'In Progress', 'Resolved', 'Rejected')),
       resolution_info TEXT NOT NULL DEFAULT '',
       created_at TEXT NOT NULL,
-      updated_at TEXT NOT NULL
+      updated_at TEXT NOT NULL,
+      assigned_faculty_user_id TEXT REFERENCES users(id) ON DELETE SET NULL
     );
     CREATE INDEX IF NOT EXISTS complaints_user_updated ON complaints(user_id, updated_at DESC);
     CREATE TABLE IF NOT EXISTS complaint_status_history (
@@ -264,6 +265,22 @@ function createSchema(db: DatabaseSync) {
     );
     CREATE INDEX IF NOT EXISTS attendance_records_by_student_course
       ON attendance_records(student_user_id, course_id);
+  `);
+
+  // Additive migration for existing databases. Existing complaints remain unassigned.
+  const complaintColumns = new Set(
+    (db.prepare("PRAGMA table_info(complaints)").all() as { name: string }[]).map(
+      (column) => column.name,
+    ),
+  );
+  if (!complaintColumns.has("assigned_faculty_user_id")) {
+    db.exec(
+      "ALTER TABLE complaints ADD COLUMN assigned_faculty_user_id TEXT REFERENCES users(id) ON DELETE SET NULL",
+    );
+  }
+  db.exec(`
+    CREATE INDEX IF NOT EXISTS complaints_by_assigned_faculty_updated
+      ON complaints(assigned_faculty_user_id, updated_at DESC)
   `);
 
   // Existing SQLite files may have the original event_registrations schema.

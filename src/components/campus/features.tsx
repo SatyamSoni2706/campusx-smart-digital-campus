@@ -484,11 +484,13 @@ type ComplaintHistoryItem = {
   actorName: string;
 };
 type ComplaintItem = Complaint & {
+  assignedFacultyUserId?: string | null;
   resolutionInfo?: string;
   createdAt?: string;
   updatedAt?: string;
   history?: ComplaintHistoryItem[];
 };
+type ComplaintFacultyOption = { id: string; name: string; email: string };
 type ComplaintInput = Pick<
   Complaint,
   "title" | "category" | "description" | "location" | "priority"
@@ -502,9 +504,11 @@ type ComplaintsViewProps = {
     status: ComplaintStatus,
     resolutionInfo: string,
   ) => Promise<ComplaintItem>;
+  facultyOptions?: ComplaintFacultyOption[];
+  onAssign?: (complaintId: string, facultyUserId: string | null) => Promise<void>;
 };
 
-export function ComplaintsView({ mode, initialItems, onSubmit, onUpdate }: ComplaintsViewProps) {
+export function ComplaintsView({ mode, initialItems, onSubmit, onUpdate, facultyOptions = [], onAssign }: ComplaintsViewProps) {
   const [items, setItems] = useState<ComplaintItem[]>(
     initialItems ??
       (mode === "student"
@@ -514,6 +518,7 @@ export function ComplaintsView({ mode, initialItems, onSubmit, onUpdate }: Compl
   const [filter, setFilter] = useState<"All" | ComplaintStatus>("All");
   const [creating, setCreating] = useState(false);
   const [preview, setPreview] = useState<string | null>(null);
+  const [detail, setDetail] = useState<ComplaintItem | null>(null);
   const [drafts, setDrafts] = useState<
     Record<string, { status: ComplaintStatus; resolutionInfo: string }>
   >({});
@@ -599,6 +604,22 @@ export function ComplaintsView({ mode, initialItems, onSubmit, onUpdate }: Compl
     }
   }
 
+  async function assign(c: ComplaintItem, facultyUserId: string) {
+    if (!onAssign) return;
+    setSavingId(c.id);
+    try {
+      await onAssign(c.id, facultyUserId || null);
+      setItems((xs) => xs.map((item) => item.id === c.id
+        ? { ...item, assignedFacultyUserId: facultyUserId || null }
+        : item));
+      toast.success(facultyUserId ? `${c.id} assigned to Faculty` : `${c.id} unassigned`);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Could not assign the complaint.");
+    } finally {
+      setSavingId(null);
+    }
+  }
+
   return (
     <>
       <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
@@ -664,7 +685,8 @@ export function ComplaintsView({ mode, initialItems, onSubmit, onUpdate }: Compl
                 <th className="eyebrow p-3">Priority</th>
                 <th className="eyebrow p-3">Date</th>
                 <th className="eyebrow p-3">Status</th>
-                {mode === "admin" && <th className="eyebrow p-3">Resolution / action</th>}
+                {mode === "admin" && <th className="eyebrow p-3">Assigned Faculty</th>}
+                {(mode === "admin" || mode === "faculty") && <th className="eyebrow p-3">Resolution / action</th>}
               </tr>
             </thead>
             <tbody>
@@ -672,7 +694,11 @@ export function ComplaintsView({ mode, initialItems, onSubmit, onUpdate }: Compl
                 <tr key={c.id} className="border-b last:border-0 hover:bg-card/60">
                   <td className="p-3 font-mono text-xs">{c.id}</td>
                   <td className="p-3">
-                    <div className="font-semibold">{c.title}</div>
+                    {mode === "faculty" ? (
+                      <button type="button" onClick={() => setDetail(c)} className="text-left font-semibold text-primary underline-offset-2 hover:underline" aria-label={`Open complaint ${c.id}`}>
+                        {c.title}
+                      </button>
+                    ) : <div className="font-semibold">{c.title}</div>}
                     <div className="text-xs text-muted-foreground">
                       {c.category} · {c.location}
                     </div>
@@ -683,7 +709,7 @@ export function ComplaintsView({ mode, initialItems, onSubmit, onUpdate }: Compl
                   </td>
                   <td className="p-3 font-mono text-xs text-muted-foreground">{fmtDate(c.date)}</td>
                   <td className="p-3">
-                    {mode === "admin" ? (
+                    {mode === "admin" || mode === "faculty" ? (
                       <select
                         value={drafts[c.id]?.status ?? c.status}
                         onChange={(e) =>
@@ -706,6 +732,22 @@ export function ComplaintsView({ mode, initialItems, onSubmit, onUpdate }: Compl
                     )}
                   </td>
                   {mode === "admin" && (
+                    <td className="p-3">
+                      <select
+                        aria-label={`Assign complaint ${c.id} to Faculty`}
+                        value={c.assignedFacultyUserId ?? ""}
+                        disabled={savingId === c.id}
+                        onChange={(e) => void assign(c, e.target.value)}
+                        className="max-w-[210px] rounded-md border bg-card px-2 py-1 text-xs"
+                      >
+                        <option value="">Unassigned</option>
+                        {facultyOptions.map((faculty) => (
+                          <option key={faculty.id} value={faculty.id}>{faculty.name} · {faculty.email}</option>
+                        ))}
+                      </select>
+                    </td>
+                  )}
+                  {(mode === "admin" || mode === "faculty") && (
                     <td className="p-3">
                       <div className="flex min-w-[280px] gap-2">
                         <input
@@ -745,6 +787,28 @@ export function ComplaintsView({ mode, initialItems, onSubmit, onUpdate }: Compl
           )}
         </div>
       )}
+      <Dialog open={detail !== null} onOpenChange={(open) => { if (!open) setDetail(null); }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle className="font-display">{detail?.title ?? "Complaint details"}</DialogTitle>
+            <DialogDescription>{detail ? `${detail.id} · ${detail.category} · ${detail.location}` : ""}</DialogDescription>
+          </DialogHeader>
+          {detail && <div className="space-y-3 text-sm">
+            <div className="flex flex-wrap gap-2"><StatusBadge value={detail.status} /><StatusBadge value={detail.priority} /></div>
+            <p className="whitespace-pre-wrap">{detail.description}</p>
+            {detail.resolutionInfo && <p className="rounded-lg bg-success-soft p-3 text-success"><strong>Update / resolution:</strong> {detail.resolutionInfo}</p>}
+            <div className="text-xs text-muted-foreground">Reported by {detail.by} · {fmtDate(detail.date)}</div>
+            {detail.history && detail.history.length > 0 && <div className="border-t pt-3">
+              <h3 className="mb-2 font-semibold">Status history</h3>
+              <div className="space-y-2">{detail.history.map((entry, index) => <div key={`${entry.createdAt}-${index}`} className="text-xs text-muted-foreground">
+                <div className="font-medium text-foreground">{entry.fromStatus ? `${entry.fromStatus} → ` : ""}{entry.toStatus}</div>
+                <div>{entry.actorName} · {fmtDate(entry.createdAt.slice(0, 10))} {entry.createdAt.slice(11, 16)}</div>
+                {entry.resolutionInfo && <div>{entry.resolutionInfo}</div>}
+              </div>)}</div>
+            </div>}
+          </div>}
+        </DialogContent>
+      </Dialog>
       <Dialog open={creating} onOpenChange={setCreating}>
         <DialogContent>
           <DialogHeader>

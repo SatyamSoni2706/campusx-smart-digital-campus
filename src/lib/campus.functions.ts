@@ -16,6 +16,7 @@ type ComplaintRecord = Complaint & {
 };
 type ComplaintRow = Complaint & {
   userId: string;
+  assignedFacultyUserId: string | null;
   resolutionInfo: string;
   createdAt: string;
   updatedAt: string;
@@ -50,6 +51,10 @@ const eventSchema = z.object({
   organizer: z.string().trim().min(2).max(120),
   description: z.string().trim().max(2000),
   seats: z.number().int().min(1).max(100000),
+});
+const complaintAssignmentSchema = z.object({
+  complaintId: z.string().trim().min(3).max(100),
+  facultyUserId: z.string().trim().min(1).max(100).nullable(),
 });
 const eventRegistrationSchema = z.object({
   eventId: z.string().min(1).max(100),
@@ -173,31 +178,103 @@ function toComplaintRecord(
 export const listComplaintsFn = createServerFn({ method: "GET" }).handler(async () => {
   const { requireCampusUser } = await import("./server/auth.server");
   const { getDb } = await import("./server/db.server");
-  const { randomUUID } = await import("node:crypto");
   const user = await requireCampusUser();
   const db = getDb();
-  const rows =
-    user.role !== "Student"
-      ? (db
-          .prepare(
-            `SELECT c.id, c.title, c.category, c.description, c.location, c.priority, c.status,
-        substr(c.created_at, 1, 10) AS date,
-        c.user_id AS userId, c.resolution_info AS resolutionInfo, c.created_at AS createdAt,
-        c.updated_at AS updatedAt, u.name AS by
-      FROM complaints c JOIN users u ON u.id = c.user_id ORDER BY c.updated_at DESC`,
-          )
-          .all() as ComplaintRow[])
-      : (db
-          .prepare(
-            `SELECT c.id, c.title, c.category, c.description, c.location, c.priority, c.status,
-        substr(c.created_at, 1, 10) AS date,
-        c.user_id AS userId, c.resolution_info AS resolutionInfo, c.created_at AS createdAt,
-        c.updated_at AS updatedAt, u.name AS by
-      FROM complaints c JOIN users u ON u.id = c.user_id WHERE c.user_id = ? ORDER BY c.updated_at DESC`,
-          )
-          .all(user.id) as ComplaintRow[]);
+  if (user.role === "Faculty") throw new Error("Use the Faculty issue list.");
+  const query = `SELECT c.id, c.title, c.category, c.description, c.location, c.priority, c.status,
+    substr(c.created_at, 1, 10) AS date,
+    c.user_id AS userId, c.assigned_faculty_user_id AS assignedFacultyUserId,
+    c.resolution_info AS resolutionInfo, c.created_at AS createdAt,
+    c.updated_at AS updatedAt, u.name AS by
+    FROM complaints c JOIN users u ON u.id = c.user_id`;
+  const rows = (user.role === "Admin"
+    ? db.prepare(`${query} ORDER BY c.updated_at DESC`).all()
+    : db.prepare(`${query} WHERE c.user_id = ? ORDER BY c.updated_at DESC`).all(user.id)) as ComplaintRow[];
   return rows.map((row) => toComplaintRecord(db, row));
 });
+
+export const listFacultyComplaintsFn = createServerFn({ method: "GET" }).handler(async () => {
+  const { requireCampusUser } = await import("./server/auth.server");
+  const { getDb } = await import("./server/db.server");
+  const faculty = await requireCampusUser("Faculty");
+  const db = getDb();
+  const rows = db.prepare(`
+    SELECT c.id, c.title, c.category, c.description, c.location, c.priority, c.status,
+      substr(c.created_at, 1, 10) AS date,
+      c.user_id AS userId, c.assigned_faculty_user_id AS assignedFacultyUserId,
+      c.resolution_info AS resolutionInfo, c.created_at AS createdAt,
+      c.updated_at AS updatedAt, u.name AS by
+    FROM complaints c JOIN users u ON u.id = c.user_id
+    WHERE c.assigned_faculty_user_id = ? ORDER BY c.updated_at DESC
+  `).all(faculty.id) as ComplaintRow[];
+  return rows.map((row) => toComplaintRecord(db, row));
+});
+
+export const listAdminComplaintFacultyFn = createServerFn({ method: "GET" }).handler(async () => {
+  const { requireCampusUser } = await import("./server/auth.server");
+  const { getDb } = await import("./server/db.server");
+  await requireCampusUser("Admin");
+  return getDb().prepare(`
+    SELECT id, name, email FROM users WHERE role = 'Faculty' ORDER BY name COLLATE NOCASE
+  `).all() as { id: string; name: string; email: string }[];
+});
+
+export const assignComplaintFacultyFn = createServerFn({ method: "POST" })
+  .validator((input: unknown) => complaintAssignmentSchema.parse(input))
+  .handler(async ({ data }) => {
+    const { requireCampusUser } = await import("./server/auth.server");
+    const { getDb } = await import("./server/db.server");
+    await requireCampusUser("Admin");
+    const db = getDb();
+    if (data.facultyUserId !== null) {
+      const faculty = db.prepare("SELECT id FROM users WHERE id = ? AND role = 'Faculty'").get(data.facultyUserId);
+      if (!faculty) throw new Error("Select a registered Faculty account.");
+    }
+    const result = db.prepare("UPDATE complaints SET assigned_faculty_user_id = ?, updated_at = ? WHERE id = ?")
+      .run(data.facultyUserId, new Date().toISOString(), data.complaintId);
+    if (Number(result.changes) === 0) throw new Error("Complaint was not found.");
+    return { ok: true as const };
+  });
+
+export const updateAssignedComplaintFn = createServerFn({ method: "POST" })
+  .validator((input: unknown) => complaintUpdateSchema.parse(input))
+  .handler(async ({ data }) => {
+    const { requireCampusUser } = await import("./server/auth.server");
+    const { getDb } = await import("./server/db.server");
+    const { randomUUID } = await import("node:crypto");
+    const faculty = await requireCampusUser("Faculty");
+    const db = getDb();
+    db.exec("BEGIN IMMEDIATE");
+    try {
+      const current = db.prepare(`
+        SELECT status, resolution_info AS resolutionInfo FROM complaints
+        WHERE id = ? AND assigned_faculty_user_id = ?
+      `).get(data.id, faculty.id) as { status: ComplaintStatus; resolutionInfo: string } | undefined;
+      if (!current) throw new Error("Assigned complaint was not found.");
+      const now = new Date().toISOString();
+      db.prepare(`UPDATE complaints SET status = ?, resolution_info = ?, updated_at = ?
+        WHERE id = ? AND assigned_faculty_user_id = ?`)
+        .run(data.status, data.resolutionInfo, now, data.id, faculty.id);
+      if (current.status !== data.status || current.resolutionInfo !== data.resolutionInfo) {
+        db.prepare(`INSERT INTO complaint_status_history
+          (id, complaint_id, actor_user_id, from_status, to_status, resolution_info, created_at)
+          VALUES (?, ?, ?, ?, ?, ?, ?)`)
+          .run(randomUUID(), data.id, faculty.id, current.status, data.status, data.resolutionInfo, now);
+      }
+      db.exec("COMMIT");
+    } catch (error) {
+      db.exec("ROLLBACK");
+      throw error;
+    }
+    const row = db.prepare(`SELECT c.id, c.title, c.category, c.description, c.location, c.priority, c.status,
+      substr(c.created_at, 1, 10) AS date, c.user_id AS userId,
+      c.assigned_faculty_user_id AS assignedFacultyUserId,
+      c.resolution_info AS resolutionInfo, c.created_at AS createdAt,
+      c.updated_at AS updatedAt, u.name AS by FROM complaints c
+      JOIN users u ON u.id = c.user_id
+      WHERE c.id = ? AND c.assigned_faculty_user_id = ?`).get(data.id, faculty.id) as ComplaintRow;
+    return toComplaintRecord(db, row);
+  });
 
 export const createComplaintFn = createServerFn({ method: "POST" })
   .validator((input: unknown) => complaintSchema.parse(input))
@@ -238,7 +315,8 @@ export const createComplaintFn = createServerFn({ method: "POST" })
       .prepare(
         `SELECT c.id, c.title, c.category, c.description, c.location, c.priority, c.status,
       substr(c.created_at, 1, 10) AS date,
-      c.user_id AS userId, c.resolution_info AS resolutionInfo, c.created_at AS createdAt,
+      c.user_id AS userId, c.assigned_faculty_user_id AS assignedFacultyUserId,
+      c.resolution_info AS resolutionInfo, c.created_at AS createdAt,
       c.updated_at AS updatedAt, u.name AS by FROM complaints c JOIN users u ON u.id = c.user_id WHERE c.id = ?`,
       )
       .get(id) as ComplaintRow;
@@ -286,7 +364,8 @@ export const updateComplaintFn = createServerFn({ method: "POST" })
       .prepare(
         `SELECT c.id, c.title, c.category, c.description, c.location, c.priority, c.status,
       substr(c.created_at, 1, 10) AS date,
-      c.user_id AS userId, c.resolution_info AS resolutionInfo, c.created_at AS createdAt,
+      c.user_id AS userId, c.assigned_faculty_user_id AS assignedFacultyUserId,
+      c.resolution_info AS resolutionInfo, c.created_at AS createdAt,
       c.updated_at AS updatedAt, u.name AS by FROM complaints c JOIN users u ON u.id = c.user_id WHERE c.id = ?`,
       )
       .get(data.id) as ComplaintRow;
@@ -1162,12 +1241,19 @@ export const getFacultyFoundationFn = createServerFn({ method: "GET" }).handler(
     JOIN faculty_courses fc ON fc.course_id = ca.course_id AND fc.faculty_user_id = ?
     JOIN courses c ON c.id = ca.course_id AND c.status = 'Active'
   `).get(user.id)?.["count"] ?? 0);
+  const issueCounts = db.prepare(`
+    SELECT COUNT(*) AS assignedCount,
+      SUM(CASE WHEN status NOT IN ('Resolved', 'Rejected') THEN 1 ELSE 0 END) AS openCount
+    FROM complaints WHERE assigned_faculty_user_id = ?
+  `).get(user.id) as { assignedCount: number; openCount: number | null };
   return {
     identity: { id: user.id, name: user.name, email: user.email, studentId: user.studentId },
     courses,
     totalCourses: courses.length,
     totalStudents,
     assignmentCount,
+    assignedIssueCount: Number(issueCounts.assignedCount ?? 0),
+    openAssignedIssueCount: Number(issueCounts.openCount ?? 0),
   };
 });
 

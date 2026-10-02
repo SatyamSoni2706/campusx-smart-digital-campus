@@ -20,7 +20,10 @@ function PFacultyIndex() {
         <Stat label="Assigned courses" value={data.totalCourses} />
         <Stat label="Enrolled students" value={data.totalStudents} />
         <Stat label="Assignments in enrolled courses" value={data.assignmentCount} />
+        <Stat label="Assigned issues" value={data.assignedIssueCount} />
+        <Stat label="Open assigned issues" value={data.openAssignedIssueCount} />
       </div>
+      <div className="mt-3 text-right"><Link to="/faculty/issues" className="text-sm font-semibold text-primary">Review assigned issues →</Link></div>
       <Panel className="mt-4">
         <div className="mb-3 flex items-center justify-between gap-3"><h2 className="text-lg font-bold">My courses</h2><Link to="/faculty/classes" className="text-sm font-semibold text-primary">View all</Link></div>
         {data.courses.length === 0 ? <EmptyState title="No courses assigned" desc="Ask an administrator to create courses and assign them to your faculty account." /> : (
