@@ -224,15 +224,34 @@ export const assignComplaintFacultyFn = createServerFn({ method: "POST" })
   .handler(async ({ data }) => {
     const { requireCampusUser } = await import("./server/auth.server");
     const { getDb } = await import("./server/db.server");
+    const { randomUUID } = await import("node:crypto");
     await requireCampusUser("Admin");
     const db = getDb();
-    if (data.facultyUserId !== null) {
-      const faculty = db.prepare("SELECT id FROM users WHERE id = ? AND role = 'Faculty'").get(data.facultyUserId);
-      if (!faculty) throw new Error("Select a registered Faculty account.");
+    db.exec("BEGIN IMMEDIATE");
+    try {
+      if (data.facultyUserId !== null) {
+        const faculty = db.prepare("SELECT id FROM users WHERE id = ? AND role = 'Faculty'").get(data.facultyUserId);
+        if (!faculty) throw new Error("Select a registered Faculty account.");
+      }
+      const complaint = db.prepare(`SELECT title, assigned_faculty_user_id AS assignedFacultyUserId
+        FROM complaints WHERE id = ?`).get(data.complaintId) as
+        { title: string; assignedFacultyUserId: string | null } | undefined;
+      if (!complaint) throw new Error("Complaint was not found.");
+      const now = new Date().toISOString();
+      db.prepare("UPDATE complaints SET assigned_faculty_user_id = ?, updated_at = ? WHERE id = ?")
+        .run(data.facultyUserId, now, data.complaintId);
+      if (data.facultyUserId && data.facultyUserId !== complaint.assignedFacultyUserId) {
+        db.prepare(`INSERT INTO notifications
+          (id, user_id, title, body, type, time_label, created_at, read_at)
+          VALUES (?, ?, ?, ?, 'complaint', 'Just now', ?, NULL)`)
+          .run(randomUUID(), data.facultyUserId, "Complaint assigned to you",
+            `Complaint “${complaint.title}” (${data.complaintId}) has been assigned to your account.`, now);
+      }
+      db.exec("COMMIT");
+    } catch (error) {
+      db.exec("ROLLBACK");
+      throw error;
     }
-    const result = db.prepare("UPDATE complaints SET assigned_faculty_user_id = ?, updated_at = ? WHERE id = ?")
-      .run(data.facultyUserId, new Date().toISOString(), data.complaintId);
-    if (Number(result.changes) === 0) throw new Error("Complaint was not found.");
     return { ok: true as const };
   });
 
@@ -811,6 +830,60 @@ type StudentNotification = {
   read: boolean;
   type: "assignment" | "complaint" | "notice" | "event";
 };
+type FacultyNotification = {
+  id: string;
+  title: string;
+  body: string;
+  type: "assignment" | "complaint" | "notice" | "event";
+  time: string;
+  createdAt: string;
+  read: boolean;
+};
+
+export const getFacultyNotificationsFn = createServerFn({ method: "GET" }).handler(async () => {
+  const { requireCampusUser } = await import("./server/auth.server");
+  const { getDb } = await import("./server/db.server");
+  const faculty = await requireCampusUser("Faculty");
+  const db = getDb();
+  const rows = db.prepare(`
+    SELECT id, title, body, type, time_label AS time, created_at AS createdAt,
+      read_at IS NOT NULL AS isRead
+    FROM notifications WHERE user_id = ? ORDER BY created_at DESC, id DESC
+  `).all(faculty.id) as (Omit<FacultyNotification, "read"> & { isRead: number })[];
+  return {
+    items: rows.map(({ isRead, ...item }) => ({ ...item, read: Boolean(isRead) })),
+    unreadCount: rows.reduce((count, row) => count + (row.isRead ? 0 : 1), 0),
+  };
+});
+
+export const getFacultyUnreadNotificationCountFn = createServerFn({ method: "GET" }).handler(async () => {
+  const { requireCampusUser } = await import("./server/auth.server");
+  const { getDb } = await import("./server/db.server");
+  const faculty = await requireCampusUser("Faculty");
+  const count = getDb().prepare(`
+    SELECT COUNT(*) AS count FROM notifications WHERE user_id = ? AND read_at IS NULL
+  `).get(faculty.id) as { count: number };
+  return Number(count.count);
+});
+
+export const setFacultyNotificationsReadFn = createServerFn({ method: "POST" })
+  .validator((input: unknown) => notificationReadSchema.parse(input))
+  .handler(async ({ data }) => {
+    const { requireCampusUser } = await import("./server/auth.server");
+    const { getDb } = await import("./server/db.server");
+    const faculty = await requireCampusUser("Faculty");
+    const db = getDb();
+    const now = new Date().toISOString();
+    const result = data.mode === "all"
+      ? db.prepare("UPDATE notifications SET read_at = COALESCE(read_at, ?) WHERE user_id = ?")
+          .run(now, faculty.id)
+      : db.prepare("UPDATE notifications SET read_at = COALESCE(read_at, ?) WHERE user_id = ? AND id = ?")
+          .run(now, faculty.id, data.id);
+    if (data.mode === "one" && Number(result.changes) === 0) {
+      throw new Error("Notification was not found for your Faculty account.");
+    }
+    return { ok: true as const };
+  });
 
 export const getStudentNotificationsFn = createServerFn({ method: "GET" }).handler(
   async (): Promise<StudentNotification[]> => {

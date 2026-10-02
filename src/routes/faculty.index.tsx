@@ -19,7 +19,7 @@ function PFacultyIndex() {
       <div className="grid grid-cols-2 gap-3 xl:grid-cols-3">
         <Stat label="Assigned courses" value={data.totalCourses} />
         <Stat label="Enrolled students" value={data.totalStudents} />
-        <Stat label="Assignments in enrolled courses" value={data.assignmentCount} />
+        <Stat label="Course assignments" value={data.assignmentCount} />
         <Stat label="Assigned issues" value={data.assignedIssueCount} />
         <Stat label="Open assigned issues" value={data.openAssignedIssueCount} />
       </div>
