@@ -144,6 +144,7 @@ type EventView = {
   category: string;
   seats: number;
   registered: number;
+  remainingCapacity: number;
   isRegistered: boolean;
 };
 type LostFoundViewItem = {
@@ -489,10 +490,16 @@ function eventView(
   const row = db
     .prepare(
       `SELECT e.id, e.title, e.date, e.time, e.venue, e.organizer, e.description, e.category,
-        e.seats, e.registered,
-        EXISTS(SELECT 1 FROM event_registrations r
-          WHERE r.event_id = e.id AND r.user_id = ? AND r.status = 'Registered') AS isRegistered
-      FROM events e WHERE e.id = ?`,
+        e.seats, COUNT(active_registration.id) AS registered,
+        MAX(0, e.seats - COUNT(active_registration.id)) AS remainingCapacity,
+        EXISTS(SELECT 1 FROM event_registrations user_registration
+          WHERE user_registration.event_id = e.id AND user_registration.user_id = ?
+            AND user_registration.status = 'Registered') AS isRegistered
+      FROM events e
+      LEFT JOIN event_registrations active_registration
+        ON active_registration.event_id = e.id AND active_registration.status = 'Registered'
+      WHERE e.id = ?
+      GROUP BY e.id`,
     )
     .get(userId, id) as (Omit<EventView, "isRegistered"> & { isRegistered: number }) | undefined;
   return row ? { ...row, isRegistered: Boolean(row.isRegistered) } : undefined;
@@ -541,8 +548,8 @@ export const setEventRegistrationFn = createServerFn({ method: "POST" })
     const db = getDb();
     db.exec("BEGIN IMMEDIATE");
     try {
-      const event = db.prepare("SELECT seats, registered FROM events WHERE id = ?").get(data.eventId) as
-        | { seats: number; registered: number }
+      const event = db.prepare("SELECT seats FROM events WHERE id = ?").get(data.eventId) as
+        | { seats: number }
         | undefined;
       if (!event) throw new Error("Event was not found.");
       const existing = db
@@ -550,7 +557,11 @@ export const setEventRegistrationFn = createServerFn({ method: "POST" })
         .get(data.eventId, user.id);
       const now = new Date().toISOString();
       if (data.registered && (!existing || (existing as { status: string }).status === "Cancelled")) {
-        if (event.registered >= event.seats) throw new Error("This event is full.");
+        const activeRegistrations = db.prepare(`
+          SELECT COUNT(*) AS count FROM event_registrations
+          WHERE event_id = ? AND status = 'Registered'
+        `).get(data.eventId) as { count: number };
+        if (activeRegistrations.count >= event.seats) throw new Error("This event is full.");
         if (existing) {
           db.prepare(
             `UPDATE event_registrations SET status = 'Registered', updated_at = ?, cancelled_at = NULL
@@ -562,15 +573,11 @@ export const setEventRegistrationFn = createServerFn({ method: "POST" })
             VALUES (?, ?, ?, 'Registered', ?, ?)`,
           ).run(randomUUID(), data.eventId, user.id, now, now);
         }
-        db.prepare("UPDATE events SET registered = registered + 1 WHERE id = ?").run(data.eventId);
       } else if (!data.registered && existing && (existing as { status: string }).status === "Registered") {
         db.prepare(
           `UPDATE event_registrations SET status = 'Cancelled', updated_at = ?, cancelled_at = ?
           WHERE event_id = ? AND user_id = ?`,
         ).run(now, now, data.eventId, user.id);
-        db.prepare("UPDATE events SET registered = MAX(0, registered - 1) WHERE id = ?").run(
-          data.eventId,
-        );
       }
       db.exec("COMMIT");
     } catch (error) {
@@ -1038,7 +1045,12 @@ export const getStudentDashboardFn = createServerFn({ method: "GET" }).handler(a
       }),
     upcomingEvents: db
       .prepare(
-        "SELECT id, title, date, time, venue, organizer, description, category, seats, registered, 0 AS isRegistered FROM events WHERE date >= ? ORDER BY date LIMIT 3",
+        `SELECT e.id, e.title, e.date, e.time, e.venue, e.organizer, e.description, e.category,
+          e.seats,
+          (SELECT COUNT(*) FROM event_registrations r
+            WHERE r.event_id = e.id AND r.status = 'Registered') AS registered,
+          0 AS isRegistered
+        FROM events e WHERE e.date >= ? ORDER BY e.date LIMIT 3`,
       )
       .all(new Date().toISOString().slice(0, 10)) as unknown as typeof import("@/data/mock").events,
     openComplaintItems: db

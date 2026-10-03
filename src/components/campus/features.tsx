@@ -305,9 +305,10 @@ type EventRecord = {
   category: string;
   seats: number;
   registered: number;
+  remainingCapacity: number;
   isRegistered: boolean;
 };
-type EventInput = Omit<EventRecord, "id" | "registered" | "isRegistered" | "category">;
+type EventInput = Omit<EventRecord, "id" | "registered" | "remainingCapacity" | "isRegistered" | "category">;
 
 export function EventsBoard({
   manage,
@@ -378,7 +379,7 @@ export function EventsBoard({
       {manage && !readOnly && <div className="mb-4 flex justify-end"><button className={btn} onClick={() => setCreating(true)}><Plus className="size-4" />New event</button></div>}
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
         {items.map((e) => {
-          const full = e.registered >= e.seats && !e.isRegistered;
+          const full = e.remainingCapacity === 0;
           const d = new Date(e.date);
           return (
             <div key={e.id} className="glass rise flex flex-col rounded-xl p-5">
@@ -402,7 +403,7 @@ export function EventsBoard({
               <div className="mt-4 flex items-center justify-between">
                 <StatusBadge value={e.isRegistered ? "Registered" : full ? "Full" : "Open"} />
                 {!manage && !readOnly && (
-                  <button disabled={full || savingId === e.id} onClick={() => void toggle(e.id)} className={e.isRegistered ? btnGhost : btn}>
+                  <button disabled={(full && !e.isRegistered) || savingId === e.id} onClick={() => void toggle(e.id)} className={e.isRegistered ? btnGhost : btn}>
                     {savingId === e.id ? "Saving…" : e.isRegistered ? "Cancel" : full ? "Full" : "Register"}
                   </button>
                 )}
