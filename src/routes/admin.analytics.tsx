@@ -25,7 +25,14 @@ function PAdminAnalytics() {
         <Stat label="Notices" value={data.noticeCount} />
         <Stat label="Upcoming events" value={data.upcomingEvents} hint={`${data.totalEvents} total persisted events`} />
         <Stat label="Event registrations" value={data.totalEventRegistrations} hint="Active registrations from persisted records" />
-        <Stat label="Avg resolution" value={`${data.avgResolutionDays}d`} hint={data.resolutionFallbackCount ? `${data.resolutionFallbackCount} resolved record(s) use updated_at fallback` : "Based on resolved status history"} />
+        <Stat
+          label="Avg resolution"
+          value={data.avgResolutionDays === null ? "N/A" : `${data.avgResolutionDays}d`}
+          hint={data.resolvedWithoutHistoryCount
+            ? `${data.resolvedWithoutHistoryCount} resolved record(s) lack resolution history and are excluded`
+            : "Based on resolved status history"}
+        />
+        <Stat label="Lost & Found items" value={data.totalLostFoundItems} hint={`${data.openLostFoundItems} open`} />
       </div>
       <Panel className="mt-4">
         <h2 className="mb-4 text-lg font-bold">Issue categories</h2>

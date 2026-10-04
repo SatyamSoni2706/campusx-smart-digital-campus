@@ -11,6 +11,8 @@ import { getStudentAssignmentsFn, submitAssignmentFn } from "@/lib/campus.functi
 export const Route = createFileRoute("/student/assignments")({
   head: () => seo("Assignments", "Track deadlines, submissions and grades."),
   loader: () => getStudentAssignmentsFn(),
+  pendingComponent: () => <p className="py-8 text-sm text-muted-foreground">Loading assignments…</p>,
+  errorComponent: ({ error }) => <p className="py-8 text-sm text-danger">Could not load assignments: {String(error)}</p>,
   component: AssignmentsPage,
 });
 

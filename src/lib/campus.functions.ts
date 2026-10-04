@@ -124,6 +124,12 @@ const courseAssignmentSchema = z.object({
   due: z.string().date(),
   maxMarks: z.number().finite().positive().max(1_000_000),
 });
+const createFacultySchema = z.object({
+  name: z.string().trim().min(2).max(100),
+  facultyId: z.string().trim().min(3).max(32),
+  email: z.string().trim().email().max(255).transform((value) => value.toLowerCase()),
+  password: z.string().min(10).max(128),
+});
 const assignmentGradeSchema = z.object({
   courseAssignmentId: z.string().uuid(),
   studentUserId: z.string().trim().min(1).max(100),
@@ -1116,17 +1122,21 @@ export const getAdminDashboardFn = createServerFn({ method: "GET" }).handler(asy
     noticeCount: Number(
       (db.prepare("SELECT COUNT(*) AS count FROM notices").get() as { count: number }).count,
     ),
-    avgResolutionDays: Number(
-      ((db.prepare(`
-        SELECT AVG(julianday(COALESCE(
-          (SELECT MAX(h.created_at) FROM complaint_status_history h
-           WHERE h.complaint_id = c.id AND h.to_status = 'Resolved'),
-          c.updated_at
-        )) - julianday(c.created_at)) AS average
-        FROM complaints c WHERE c.status = 'Resolved'
-      `).get() as { average: number | null }).average ?? 0).toFixed(1),
-    ),
-    resolutionFallbackCount: Number(
+    avgResolutionDays: (() => {
+      const result = db.prepare(`
+        SELECT AVG(julianday(resolved.resolved_at) - julianday(c.created_at)) AS average
+        FROM complaints c
+        JOIN (
+          SELECT complaint_id, MAX(created_at) AS resolved_at
+          FROM complaint_status_history
+          WHERE to_status = 'Resolved'
+          GROUP BY complaint_id
+        ) resolved ON resolved.complaint_id = c.id
+        WHERE c.status = 'Resolved'
+      `).get() as { average: number | null };
+      return result.average === null ? null : Number(result.average.toFixed(1));
+    })(),
+    resolvedWithoutHistoryCount: Number(
       (db.prepare(`
         SELECT COUNT(*) AS count FROM complaints c
         WHERE c.status = 'Resolved' AND NOT EXISTS (
@@ -1148,6 +1158,8 @@ export const getAdminDashboardFn = createServerFn({ method: "GET" }).handler(asy
       ).count,
     ),
     totalEvents: Number((db.prepare("SELECT COUNT(*) AS count FROM events").get() as { count: number }).count),
+    totalLostFoundItems: Number((db.prepare("SELECT COUNT(*) AS count FROM lost_found_items").get() as { count: number }).count),
+    openLostFoundItems: Number((db.prepare("SELECT COUNT(*) AS count FROM lost_found_items WHERE status = 'Open'").get() as { count: number }).count),
     totalEventRegistrations: Number((db.prepare("SELECT COUNT(*) AS count FROM event_registrations WHERE status = 'Registered'").get() as { count: number }).count),
     eventRegistrationCounts: db.prepare(`
       SELECT e.id, e.title, COUNT(r.id) AS registrations
@@ -1185,8 +1197,19 @@ export const getAdminFacultyFn = createServerFn({ method: "GET" }).handler(async
   await requireCampusUser("Admin");
   const db = getDb();
   const faculty = db.prepare(`
-    SELECT id, name, email FROM users WHERE role = 'Faculty' ORDER BY name COLLATE NOCASE
-  `).all() as { id: string; name: string; email: string }[];
+    SELECT u.id, u.name, u.student_id AS facultyId, u.email,
+      COUNT(c.id) AS assignedCourseCount,
+      CASE WHEN u.id = 'campusx-local-demo-faculty' THEN 1 ELSE 0 END AS isDemo
+    FROM users u
+    LEFT JOIN faculty_courses fc ON fc.faculty_user_id = u.id
+    LEFT JOIN courses c ON c.id = fc.course_id AND c.status = 'Active'
+    WHERE u.role = 'Faculty'
+    GROUP BY u.id
+    ORDER BY u.name COLLATE NOCASE
+  `).all() as {
+    id: string; name: string; facultyId: string | null; email: string;
+    assignedCourseCount: number; isDemo: number;
+  }[];
   const students = db.prepare(`
     SELECT id, name, student_id AS studentId, email FROM users
     WHERE role = 'Student' ORDER BY name COLLATE NOCASE
@@ -1201,6 +1224,39 @@ export const getAdminFacultyFn = createServerFn({ method: "GET" }).handler(async
   `).all() as { id: string; code: string; name: string; semester: string; section: string; status: string; studentCount: number; facultyNames: string | null }[];
   return { faculty, students, courses };
 });
+
+export const createFacultyFn = createServerFn({ method: "POST" })
+  .validator((input: unknown) => createFacultySchema.parse(input))
+  .handler(async ({ data }) => {
+    const { requireCampusUser } = await import("./server/auth.server");
+    const { getDb } = await import("./server/db.server");
+    const { hashPassword } = await import("./server/password.server");
+    const { randomUUID } = await import("node:crypto");
+    await requireCampusUser("Admin");
+    const db = getDb();
+    const id = randomUUID();
+    db.exec("BEGIN IMMEDIATE");
+    try {
+      const duplicateEmail = db.prepare("SELECT 1 FROM users WHERE email = ?").get(data.email);
+      if (duplicateEmail) throw new Error("An account with this email already exists.");
+      const duplicateFacultyId = db.prepare(
+        "SELECT 1 FROM users WHERE student_id = ? COLLATE NOCASE",
+      ).get(data.facultyId);
+      if (duplicateFacultyId) throw new Error("This Faculty ID is already in use.");
+      db.prepare(`
+        INSERT INTO users (id, email, name, role, student_id, password_hash)
+        VALUES (?, ?, ?, 'Faculty', ?, ?)
+      `).run(id, data.email, data.name, data.facultyId, hashPassword(data.password));
+      db.exec("COMMIT");
+    } catch (error) {
+      db.exec("ROLLBACK");
+      if (error instanceof Error && error.message.includes("UNIQUE constraint failed")) {
+        throw new Error("This email or Faculty ID is already registered.");
+      }
+      throw error;
+    }
+    return { id, name: data.name, facultyId: data.facultyId, email: data.email };
+  });
 
 export const createCourseFn = createServerFn({ method: "POST" })
   .validator((input: unknown) => courseCreateSchema.parse(input))

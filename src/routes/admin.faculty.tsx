@@ -1,8 +1,18 @@
 import { createFileRoute, useRouter } from "@tanstack/react-router";
+import { useState, type FormEvent } from "react";
 import { toast } from "sonner";
+import { Plus } from "lucide-react";
 import { EmptyState, PageHeader, Panel, inputCls } from "@/components/campus/ui";
 import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import {
   assignFacultyCourseFn,
+  createFacultyFn,
   createCourseFn,
   enrollStudentCourseFn,
   getAdminFacultyFn,
@@ -20,6 +30,35 @@ export const Route = createFileRoute("/admin/faculty")({
 function PAdminFaculty() {
   const { faculty, students, courses } = Route.useLoaderData();
   const router = useRouter();
+  const [addingFaculty, setAddingFaculty] = useState(false);
+  const [creatingFaculty, setCreatingFaculty] = useState(false);
+  const [facultyError, setFacultyError] = useState("");
+
+  async function createFaculty(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const formElement = event.currentTarget;
+    const form = new FormData(formElement);
+    setCreatingFaculty(true);
+    setFacultyError("");
+    try {
+      const created = await createFacultyFn({ data: {
+        name: String(form.get("name")),
+        facultyId: String(form.get("facultyId")),
+        email: String(form.get("email")),
+        password: String(form.get("password")),
+      } });
+      formElement.reset();
+      setAddingFaculty(false);
+      await router.invalidate();
+      toast.success(`Faculty account created for ${created.name}.`);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Could not create the faculty account.";
+      setFacultyError(message);
+      toast.error(message);
+    } finally {
+      setCreatingFaculty(false);
+    }
+  }
 
   async function createCourse(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -66,15 +105,39 @@ function PAdminFaculty() {
 
   return (
     <>
-      <PageHeader eyebrow="Registered accounts" title="Faculty" desc="Faculty accounts and course relationships are stored in SQLite." />
+      <PageHeader
+        eyebrow="Registered accounts"
+        title="Faculty"
+        desc="Faculty accounts and course relationships are stored in SQLite."
+        action={<button onClick={() => { setFacultyError(""); setAddingFaculty(true); }} className="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground"><Plus className="size-4" />Add Faculty</button>}
+      />
       <Panel className="overflow-x-auto p-0">
         {faculty.length === 0 ? <EmptyState title="No registered faculty" desc="Faculty accounts will appear here when available." /> : (
-          <table className="w-full min-w-[640px] text-sm">
-            <thead><tr className="border-b text-left"><th className="eyebrow p-3">Name</th><th className="eyebrow p-3">Email</th></tr></thead>
-            <tbody>{faculty.map((member) => <tr key={member.id} className="border-b last:border-0"><td className="p-3">{member.name}</td><td className="p-3">{member.email}</td></tr>)}</tbody>
+          <table className="w-full min-w-[760px] text-sm">
+            <thead><tr className="border-b text-left"><th className="eyebrow p-3">Faculty ID</th><th className="eyebrow p-3">Full name</th><th className="eyebrow p-3">Email</th><th className="eyebrow p-3">Assigned courses</th></tr></thead>
+            <tbody>{faculty.map((member) => <tr key={member.id} className="border-b last:border-0"><td className="p-3 font-mono text-xs">{member.facultyId || "—"}</td><td className="p-3 font-medium">{member.name}{member.isDemo ? <span className="ml-2 rounded-full bg-muted px-2 py-0.5 text-[10px] font-semibold text-muted-foreground">Demo account</span> : null}</td><td className="p-3">{member.email}</td><td className="p-3">{member.assignedCourseCount}</td></tr>)}</tbody>
           </table>
         )}
       </Panel>
+      <Dialog open={addingFaculty} onOpenChange={(open) => { setAddingFaculty(open); if (!open) setFacultyError(""); }}>
+        <DialogContent className="max-w-xl">
+          <DialogHeader>
+            <DialogTitle className="font-display">Add Faculty</DialogTitle>
+            <DialogDescription>Create a Faculty account that can sign in to the Faculty Portal. Department, designation, and phone are not stored by the current schema.</DialogDescription>
+          </DialogHeader>
+          <form onSubmit={(event) => void createFaculty(event)} className="grid gap-4 sm:grid-cols-2">
+            <label className="grid gap-1.5 text-sm font-medium">Full name<input name="name" autoComplete="name" minLength={2} maxLength={100} required className={inputCls} /></label>
+            <label className="grid gap-1.5 text-sm font-medium">Faculty ID<input name="facultyId" minLength={3} maxLength={32} required className={inputCls} /></label>
+            <label className="grid gap-1.5 text-sm font-medium sm:col-span-2">Email<input name="email" type="email" autoComplete="email" maxLength={255} required className={inputCls} /></label>
+            <label className="grid gap-1.5 text-sm font-medium sm:col-span-2">Initial password<input name="password" type="password" autoComplete="new-password" minLength={10} maxLength={128} required className={inputCls} /><span className="text-xs font-normal text-muted-foreground">At least 10 characters. The password is stored as a hash.</span></label>
+            {facultyError && <div role="alert" className="rounded-lg border border-danger/30 bg-danger-soft px-3 py-2 text-sm text-danger sm:col-span-2">{facultyError}</div>}
+            <div className="flex justify-end gap-2 sm:col-span-2">
+              <button type="button" onClick={() => setAddingFaculty(false)} disabled={creatingFaculty} className="rounded-lg border px-4 py-2 text-sm font-semibold disabled:opacity-50">Cancel</button>
+              <button type="submit" disabled={creatingFaculty} className="rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground disabled:opacity-50">{creatingFaculty ? "Creating…" : "Create Faculty"}</button>
+            </div>
+          </form>
+        </DialogContent>
+      </Dialog>
       <Panel className="mt-4">
         <h2 className="mb-3 text-lg font-bold">Create course</h2>
         <form onSubmit={createCourse} className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">

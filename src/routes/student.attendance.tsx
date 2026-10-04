@@ -7,6 +7,8 @@ import { getStudentAttendanceFn } from "@/lib/campus.functions";
 export const Route = createFileRoute("/student/attendance")({
   head: () => seo("Attendance", "Subject-wise attendance and shortage alerts."),
   loader: () => getStudentAttendanceFn(),
+  pendingComponent: () => <p className="py-8 text-sm text-muted-foreground">Loading attendance…</p>,
+  errorComponent: ({ error }) => <p className="py-8 text-sm text-danger">Could not load attendance: {String(error)}</p>,
   component: AttendancePage,
 });
 
