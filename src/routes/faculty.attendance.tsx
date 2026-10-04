@@ -1,5 +1,6 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { createFileRoute } from "@tanstack/react-router";
+import { z } from "zod";
 import { EmptyState, PageHeader, Panel, inputCls } from "@/components/campus/ui";
 import { getFacultyAttendanceDataFn, saveFacultyAttendanceFn } from "@/lib/campus.functions";
 import { seo } from "@/lib/seo";
@@ -7,7 +8,9 @@ import { toast } from "sonner";
 
 export const Route = createFileRoute("/faculty/attendance")({
   head: () => seo("Attendance Management", "Mark class attendance."),
-  loader: () => getFacultyAttendanceDataFn({ data: {} }),
+  validateSearch: z.object({ courseId: z.string().uuid().optional() }),
+  loaderDeps: ({ search }) => ({ courseId: search.courseId }),
+  loader: ({ deps }) => getFacultyAttendanceDataFn({ data: { courseId: deps.courseId } }),
   pendingComponent: () => <p className="py-8 text-sm text-muted-foreground">Loading attendance…</p>,
   errorComponent: ({ error }) => <p className="py-8 text-sm text-danger">Could not load attendance: {String(error)}</p>,
   component: PFacultyAttendance,
@@ -44,6 +47,11 @@ function PFacultyAttendance() {
     } catch (cause) { setError(cause instanceof Error ? cause.message : "Could not load attendance."); }
     finally { setLoading(false); }
   };
+
+  const requestedCourseId = Route.useSearch().courseId;
+  useEffect(() => {
+    if (requestedCourseId && requestedCourseId !== courseId) void load(requestedCourseId);
+  }, [requestedCourseId]);
 
   const save = async () => {
     if (data.students.length === 0) return;

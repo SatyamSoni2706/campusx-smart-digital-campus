@@ -1,6 +1,7 @@
-import { useState, type FormEvent } from "react";
+import { useEffect, useState, type FormEvent } from "react";
 import { createFileRoute } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
+import { z } from "zod";
 import { EmptyState, PageHeader, Panel, StatusBadge, inputCls } from "@/components/campus/ui";
 import { createFacultyAssignmentFn, getFacultyAssignmentsFn, gradeFacultyAssignmentFn } from "@/lib/campus.functions";
 import { seo } from "@/lib/seo";
@@ -8,6 +9,7 @@ import { toast } from "sonner";
 
 export const Route = createFileRoute("/faculty/assignments")({
   head: () => seo("Faculty Assignments", "Create assignments and review submissions."),
+  validateSearch: z.object({ courseId: z.string().uuid().optional() }),
   loader: () => getFacultyAssignmentsFn({ data: {} }),
   pendingComponent: () => <p className="py-8 text-sm text-muted-foreground">Loading assignments…</p>,
   errorComponent: ({ error }) => <p className="py-8 text-sm text-danger">Could not load assignments: {String(error)}</p>,
@@ -16,8 +18,9 @@ export const Route = createFileRoute("/faculty/assignments")({
 
 function PFacultyAssignments() {
   const initial = Route.useLoaderData();
+  const requestedCourseId = Route.useSearch().courseId;
   const [data, setData] = useState(initial);
-  const [courseId, setCourseId] = useState(initial.courses[0]?.id ?? "");
+  const [courseId, setCourseId] = useState(() => initial.courses.some((course) => course.id === requestedCourseId) ? requestedCourseId! : initial.courses[0]?.id ?? "");
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [due, setDue] = useState("");
@@ -28,6 +31,10 @@ function PFacultyAssignments() {
   const createAssignment = useServerFn(createFacultyAssignmentFn);
   const loadAssignments = useServerFn(getFacultyAssignmentsFn);
   const gradeAssignment = useServerFn(gradeFacultyAssignmentFn);
+
+  useEffect(() => {
+    if (requestedCourseId && data.courses.some((course) => course.id === requestedCourseId)) setCourseId(requestedCourseId);
+  }, [requestedCourseId]);
 
   async function refresh(selectedId?: string) {
     const next = await loadAssignments({ data: { courseAssignmentId: selectedId } });

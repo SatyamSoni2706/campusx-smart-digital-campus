@@ -88,6 +88,7 @@ const facultyAttendanceQuerySchema = z.object({
   courseId: z.string().uuid().optional(),
   sessionId: z.string().uuid().optional(),
 }).refine((input) => !input.sessionId || input.courseId, "A course is required to load a session.");
+const facultyCourseDetailSchema = z.object({ courseId: z.string().uuid() });
 const facultyAttendanceSaveSchema = z.object({
   courseId: z.string().uuid(),
   sessionId: z.string().uuid().optional(),
@@ -1387,6 +1388,66 @@ export const getFacultyFoundationFn = createServerFn({ method: "GET" }).handler(
     openAssignedIssueCount: Number(issueCounts.openCount ?? 0),
   };
 });
+
+export const getFacultyCourseDetailFn = createServerFn({ method: "GET" })
+  .validator((input: unknown) => facultyCourseDetailSchema.parse(input))
+  .handler(async ({ data }) => {
+    const { requireCampusUser } = await import("./server/auth.server");
+    const { getDb } = await import("./server/db.server");
+    const faculty = await requireCampusUser("Faculty");
+    const db = getDb();
+    const course = db.prepare(`
+      SELECT c.id, c.code, c.name, c.semester, c.section,
+        COUNT(DISTINCT student.id) AS studentCount
+      FROM faculty_courses fc
+      JOIN courses c ON c.id = fc.course_id AND c.status = 'Active'
+      LEFT JOIN course_enrollments e ON e.course_id = c.id
+      LEFT JOIN users student ON student.id = e.student_user_id AND student.role = 'Student'
+      WHERE fc.faculty_user_id = ? AND c.id = ?
+      GROUP BY c.id
+    `).get(faculty.id, data.courseId) as {
+      id: string; code: string; name: string; semester: string; section: string; studentCount: number;
+    } | undefined;
+    if (!course) throw new Error("Course not found in your assigned courses.");
+
+    const students = db.prepare(`
+      SELECT u.id AS userId, u.name, u.student_id AS studentId
+      FROM course_enrollments e
+      JOIN users u ON u.id = e.student_user_id AND u.role = 'Student'
+      WHERE e.course_id = ?
+      ORDER BY u.name COLLATE NOCASE, u.student_id
+    `).all(course.id) as { userId: string; name: string; studentId: string | null }[];
+    const assignments = db.prepare(`
+      SELECT ca.id, ca.title, ca.description, ca.due, ca.max_marks AS maxMarks,
+        COUNT(DISTINCT a.id) AS totalStudents,
+        COUNT(DISTINCT s.id) AS submissionCount
+      FROM course_assignments ca
+      LEFT JOIN assignments a ON a.course_assignment_id = ca.id
+      LEFT JOIN assignment_submissions s ON s.assignment_id = a.id AND s.student_id = a.student_id
+      WHERE ca.course_id = ?
+      GROUP BY ca.id
+      ORDER BY ca.due, ca.created_at DESC
+    `).all(course.id) as {
+      id: string; title: string; description: string; due: string; maxMarks: number;
+      totalStudents: number; submissionCount: number;
+    }[];
+    const sessionCount = Number(db.prepare(`
+      SELECT COUNT(*) AS count FROM attendance_sessions WHERE course_id = ?
+    `).get(course.id)?.["count"] ?? 0);
+    const latestAttendance = db.prepare(`
+      SELECT s.session_date AS sessionDate,
+        COALESCE(SUM(CASE WHEN r.status = 'Present' THEN 1 ELSE 0 END), 0) AS presentCount,
+        COALESCE(SUM(CASE WHEN r.status = 'Absent' THEN 1 ELSE 0 END), 0) AS absentCount
+      FROM attendance_sessions s
+      LEFT JOIN attendance_records r ON r.session_id = s.id AND r.course_id = s.course_id
+      WHERE s.course_id = ?
+      GROUP BY s.id
+      ORDER BY s.session_date DESC, s.created_at DESC
+      LIMIT 1
+    `).get(course.id) as { sessionDate: string; presentCount: number; absentCount: number } | undefined;
+
+    return { course, students, assignments, attendance: { sessionCount, latestSession: latestAttendance ?? null } };
+  });
 
 export const getFacultyAttendanceDataFn = createServerFn({ method: "GET" })
   .validator((input: unknown) => facultyAttendanceQuerySchema.parse(input))

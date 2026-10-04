@@ -1,4 +1,4 @@
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, Link } from "@tanstack/react-router";
 import { EmptyState, PageHeader, Panel } from "@/components/campus/ui";
 import { getFacultyFoundationFn } from "@/lib/campus.functions";
 import { seo } from "@/lib/seo";
@@ -18,12 +18,14 @@ function PFacultyClasses() {
       <PageHeader eyebrow="Teaching" title="Classes" desc={`${courses.length} assigned active course${courses.length === 1 ? "" : "s"}`} />
       {courses.length === 0 ? <Panel><EmptyState title="No courses assigned" desc="Courses assigned to your faculty account will appear here." /></Panel> : (
         <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-          {courses.map((course) => <Panel key={course.id}>
-            <span className="eyebrow">{course.code}</span>
-            <h3 className="font-bold">{course.name}</h3>
-            <p className="mt-1 text-sm text-muted-foreground">{course.section ? `Section ${course.section}` : "Section not set"}{course.semester ? ` · ${course.semester}` : ""}</p>
-            <p className="mt-3 text-sm">{course.studentCount} enrolled student{course.studentCount === 1 ? "" : "s"}</p>
-          </Panel>)}
+          {courses.map((course) => <Link key={course.id} to="/faculty/classes/$courseId" params={{ courseId: course.id }} className="block rounded-xl outline-none focus-visible:ring-2 focus-visible:ring-primary">
+            <Panel className="h-full transition-colors hover:bg-muted/30">
+              <span className="eyebrow">{course.code}</span>
+              <h3 className="font-bold">{course.name}</h3>
+              <p className="mt-1 text-sm text-muted-foreground">{course.section ? `Section ${course.section}` : "Section not set"}{course.semester ? ` · ${course.semester}` : ""}</p>
+              <p className="mt-3 text-sm">{course.studentCount} enrolled student{course.studentCount === 1 ? "" : "s"}</p>
+            </Panel>
+          </Link>)}
         </div>
       )}
     </>
