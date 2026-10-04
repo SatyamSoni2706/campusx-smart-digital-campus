@@ -32,8 +32,10 @@ import { Route as FacultyIndexRouteImport } from './routes/faculty.index'
 import { Route as FacultyAssignmentsRouteImport } from './routes/faculty.assignments'
 import { Route as FacultyAttendanceRouteImport } from './routes/faculty.attendance'
 import { Route as FacultyClassesRouteImport } from './routes/faculty.classes'
+import { Route as FacultyEventsRouteImport } from './routes/faculty.events'
 import { Route as FacultyIssuesRouteImport } from './routes/faculty.issues'
 import { Route as FacultyNoticesRouteImport } from './routes/faculty.notices'
+import { Route as FacultyNotificationsRouteImport } from './routes/faculty.notifications'
 import { Route as FacultyProfileRouteImport } from './routes/faculty.profile'
 import { Route as StudentIndexRouteImport } from './routes/student.index'
 import { Route as StudentAssignmentsRouteImport } from './routes/student.assignments'
@@ -162,6 +164,11 @@ const FacultyClassesRoute = FacultyClassesRouteImport.update({
   path: '/classes',
   getParentRoute: () => FacultyRoute,
 } as any)
+const FacultyEventsRoute = FacultyEventsRouteImport.update({
+  id: '/events',
+  path: '/events',
+  getParentRoute: () => FacultyRoute,
+} as any)
 const FacultyIssuesRoute = FacultyIssuesRouteImport.update({
   id: '/issues',
   path: '/issues',
@@ -170,6 +177,11 @@ const FacultyIssuesRoute = FacultyIssuesRouteImport.update({
 const FacultyNoticesRoute = FacultyNoticesRouteImport.update({
   id: '/notices',
   path: '/notices',
+  getParentRoute: () => FacultyRoute,
+} as any)
+const FacultyNotificationsRoute = FacultyNotificationsRouteImport.update({
+  id: '/notifications',
+  path: '/notifications',
   getParentRoute: () => FacultyRoute,
 } as any)
 const FacultyProfileRoute = FacultyProfileRouteImport.update({
@@ -255,8 +267,10 @@ export interface FileRoutesByFullPath {
   '/faculty/assignments': typeof FacultyAssignmentsRoute
   '/faculty/attendance': typeof FacultyAttendanceRoute
   '/faculty/classes': typeof FacultyClassesRoute
+  '/faculty/events': typeof FacultyEventsRoute
   '/faculty/issues': typeof FacultyIssuesRoute
   '/faculty/notices': typeof FacultyNoticesRoute
+  '/faculty/notifications': typeof FacultyNotificationsRoute
   '/faculty/profile': typeof FacultyProfileRoute
   '/student/assignments': typeof StudentAssignmentsRoute
   '/student/assistant': typeof StudentAssistantRoute
@@ -291,8 +305,10 @@ export interface FileRoutesByTo {
   '/faculty/assignments': typeof FacultyAssignmentsRoute
   '/faculty/attendance': typeof FacultyAttendanceRoute
   '/faculty/classes': typeof FacultyClassesRoute
+  '/faculty/events': typeof FacultyEventsRoute
   '/faculty/issues': typeof FacultyIssuesRoute
   '/faculty/notices': typeof FacultyNoticesRoute
+  '/faculty/notifications': typeof FacultyNotificationsRoute
   '/faculty/profile': typeof FacultyProfileRoute
   '/student/assignments': typeof StudentAssignmentsRoute
   '/student/assistant': typeof StudentAssistantRoute
@@ -331,8 +347,10 @@ export interface FileRoutesById {
   '/faculty/assignments': typeof FacultyAssignmentsRoute
   '/faculty/attendance': typeof FacultyAttendanceRoute
   '/faculty/classes': typeof FacultyClassesRoute
+  '/faculty/events': typeof FacultyEventsRoute
   '/faculty/issues': typeof FacultyIssuesRoute
   '/faculty/notices': typeof FacultyNoticesRoute
+  '/faculty/notifications': typeof FacultyNotificationsRoute
   '/faculty/profile': typeof FacultyProfileRoute
   '/student/assignments': typeof StudentAssignmentsRoute
   '/student/assistant': typeof StudentAssistantRoute
@@ -372,8 +390,10 @@ export interface FileRouteTypes {
     | '/faculty/assignments'
     | '/faculty/attendance'
     | '/faculty/classes'
+    | '/faculty/events'
     | '/faculty/issues'
     | '/faculty/notices'
+    | '/faculty/notifications'
     | '/faculty/profile'
     | '/student/assignments'
     | '/student/assistant'
@@ -408,8 +428,10 @@ export interface FileRouteTypes {
     | '/faculty/assignments'
     | '/faculty/attendance'
     | '/faculty/classes'
+    | '/faculty/events'
     | '/faculty/issues'
     | '/faculty/notices'
+    | '/faculty/notifications'
     | '/faculty/profile'
     | '/student/assignments'
     | '/student/assistant'
@@ -447,8 +469,10 @@ export interface FileRouteTypes {
     | '/faculty/assignments'
     | '/faculty/attendance'
     | '/faculty/classes'
+    | '/faculty/events'
     | '/faculty/issues'
     | '/faculty/notices'
+    | '/faculty/notifications'
     | '/faculty/profile'
     | '/student/assignments'
     | '/student/assistant'
@@ -640,6 +664,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof FacultyClassesRouteImport
       parentRoute: typeof FacultyRoute
     }
+    '/faculty/events': {
+      id: '/faculty/events'
+      path: '/events'
+      fullPath: '/faculty/events'
+      preLoaderRoute: typeof FacultyEventsRouteImport
+      parentRoute: typeof FacultyRoute
+    }
     '/faculty/issues': {
       id: '/faculty/issues'
       path: '/issues'
@@ -652,6 +683,13 @@ declare module '@tanstack/react-router' {
       path: '/notices'
       fullPath: '/faculty/notices'
       preLoaderRoute: typeof FacultyNoticesRouteImport
+      parentRoute: typeof FacultyRoute
+    }
+    '/faculty/notifications': {
+      id: '/faculty/notifications'
+      path: '/notifications'
+      fullPath: '/faculty/notifications'
+      preLoaderRoute: typeof FacultyNotificationsRouteImport
       parentRoute: typeof FacultyRoute
     }
     '/faculty/profile': {
@@ -773,8 +811,10 @@ interface FacultyRouteChildren {
   FacultyAssignmentsRoute: typeof FacultyAssignmentsRoute
   FacultyAttendanceRoute: typeof FacultyAttendanceRoute
   FacultyClassesRoute: typeof FacultyClassesRoute
+  FacultyEventsRoute: typeof FacultyEventsRoute
   FacultyIssuesRoute: typeof FacultyIssuesRoute
   FacultyNoticesRoute: typeof FacultyNoticesRoute
+  FacultyNotificationsRoute: typeof FacultyNotificationsRoute
   FacultyProfileRoute: typeof FacultyProfileRoute
   FacultyIndexRoute: typeof FacultyIndexRoute
 }
@@ -783,8 +823,10 @@ const FacultyRouteChildren: FacultyRouteChildren = {
   FacultyAssignmentsRoute: FacultyAssignmentsRoute,
   FacultyAttendanceRoute: FacultyAttendanceRoute,
   FacultyClassesRoute: FacultyClassesRoute,
+  FacultyEventsRoute: FacultyEventsRoute,
   FacultyIssuesRoute: FacultyIssuesRoute,
   FacultyNoticesRoute: FacultyNoticesRoute,
+  FacultyNotificationsRoute: FacultyNotificationsRoute,
   FacultyProfileRoute: FacultyProfileRoute,
   FacultyIndexRoute: FacultyIndexRoute,
 }

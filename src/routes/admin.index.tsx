@@ -6,6 +6,8 @@ import { getAdminDashboardFn } from "@/lib/campus.functions";
 export const Route = createFileRoute("/admin/")({
   head: () => seo("Admin Dashboard", "University operations overview."),
   loader: () => getAdminDashboardFn(),
+  pendingComponent: () => <p className="py-8 text-sm text-muted-foreground">Loading dashboard…</p>,
+  errorComponent: ({ error }) => <p className="py-8 text-sm text-danger">Could not load dashboard: {String(error)}</p>,
   component: PAdminIndex,
 });
 
@@ -26,17 +28,21 @@ function PAdminIndex() {
         />
         <Stat label="Resolved complaints" value={data.resolvedComplaints} tone="success" />
         <Stat label="Notices" value={data.noticeCount} />
-        <Stat label="Events" value={data.upcomingEvents} />
+        <Stat label="Upcoming events" value={data.upcomingEvents} hint={`${data.totalEvents} total events`} />
+        <Stat label="Event registrations" value={data.totalEventRegistrations} />
+        <Stat label="Lost & Found" value={data.totalLostFoundItems} hint={`${data.openLostFoundItems} open`} />
       </div>
       <Panel className="mt-4">
         <h2 className="mb-3 text-lg font-bold">Recent complaints</h2>
-        {data.recentComplaints.map((c) => (
-          <div key={c.id} className="flex items-center gap-3 border-b py-2.5 last:border-0">
-            <span className="font-mono text-xs">{c.id}</span>
-            <span className="flex-1 text-sm">{c.title}</span>
-            <StatusBadge value={c.status} />
-          </div>
-        ))}
+        {data.recentComplaints.length === 0 ? (
+          <p className="py-4 text-sm text-muted-foreground">No complaints have been submitted yet.</p>
+        ) : data.recentComplaints.map((c) => (
+            <div key={c.id} className="flex items-center gap-3 border-b py-2.5 last:border-0">
+              <span className="font-mono text-xs">{c.id}</span>
+              <span className="flex-1 text-sm">{c.title}</span>
+              <StatusBadge value={c.status} />
+            </div>
+          ))}
         <Link
           to="/admin/complaints"
           className="mt-3 inline-block text-sm font-semibold text-primary"

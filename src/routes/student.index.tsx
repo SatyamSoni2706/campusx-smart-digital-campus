@@ -2,7 +2,7 @@ import { createFileRoute, Link } from "@tanstack/react-router";
 import { CalendarPlus, FileUp, PackageSearch, Sparkles, Wrench } from "lucide-react";
 import { Panel, PanelHeader, Stat, StatusBadge } from "@/components/campus/ui";
 import { TodaySchedule } from "@/components/campus/features";
-import { fmtDate, notifications } from "@/data/mock";
+import { fmtDate } from "@/data/mock";
 import { seo } from "@/lib/seo";
 import { getStudentDashboardFn } from "@/lib/campus.functions";
 
@@ -37,13 +37,17 @@ function StudentDashboard() {
         </h1>
       </div>
       <section className="grid grid-cols-2 gap-3 xl:grid-cols-4">
-        <Stat
-          label="Attendance"
-          value={`${data.attendance}%`}
-          hint="Current term"
-          tone="success"
-          bar={data.attendance}
-        />
+        {data.attendance === null ? (
+          <Stat label="Attendance" value="—" hint="No records yet" tone="muted" />
+        ) : (
+          <Stat
+            label="Attendance"
+            value={`${data.attendance}%`}
+            hint="Current term"
+            tone="success"
+            bar={data.attendance}
+          />
+        )}
         <Stat
           label="Today's classes"
           value={data.todayClasses}
@@ -177,7 +181,7 @@ function StudentDashboard() {
             }
           />
           <div className="flex flex-col gap-2.5">
-            {notifications.slice(0, 3).map((n) => (
+            {data.latestNotifications.map((n) => (
               <div key={n.id} className="flex gap-2.5">
                 {!n.read ? (
                   <span className="mt-1.5 size-2 shrink-0 rounded-full bg-primary" />
@@ -190,6 +194,9 @@ function StudentDashboard() {
                 </div>
               </div>
             ))}
+            {data.latestNotifications.length === 0 && (
+              <p className="text-sm text-muted-foreground">No notifications yet.</p>
+            )}
           </div>
         </Panel>
       </section>

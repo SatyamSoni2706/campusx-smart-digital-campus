@@ -13,7 +13,6 @@ import {
   Wrench,
 } from "lucide-react";
 import { PortalShell, type NavItem } from "@/components/campus/PortalShell";
-import { currentStudent } from "@/data/mock";
 import { currentUserFn } from "@/lib/auth.functions";
 
 const nav: NavItem[] = [
@@ -36,17 +35,31 @@ export const Route = createFileRoute("/student")({
     if (!user) throw redirect({ to: "/login" });
     if (user.role !== "Student")
       throw redirect({ to: user.role === "Admin" ? "/admin" : "/faculty" });
+    return { user };
   },
-  component: () => (
+  component: StudentLayout,
+});
+
+function StudentLayout() {
+  const { user } = Route.useRouteContext();
+  const initials = user.name
+    .trim()
+    .split(/\s+/)
+    .map((part) => part[0])
+    .slice(0, 2)
+    .join("")
+    .toUpperCase();
+
+  return (
     <PortalShell
       role="Student"
       nav={nav}
       notifyTo="/student/notifications"
       user={{
-        name: currentStudent.name,
-        initials: currentStudent.initials,
-        sub: `CSE · Sem ${currentStudent.semester}`,
+        name: user.name,
+        initials,
+        sub: user.studentId ? `Student ID · ${user.studentId}` : user.email,
       }}
     />
-  ),
-});
+  );
+}

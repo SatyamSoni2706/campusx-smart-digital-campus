@@ -4,8 +4,8 @@ import { Calendar, Clock, MapPin, Users, Plus, Search, Send, Sparkles, ImagePlus
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
-  notices as seedNotices, events as seedEvents, complaints as seedComplaints, lostFound as seedLost,
-  timetable, days, todayKey, fmtDate, type Notice, type Complaint, type ComplaintStatus, type LostItem, type Priority,
+  notices as seedNotices, complaints as seedComplaints,
+  timetable, days, todayKey, fmtDate, type Notice, type Complaint, type ComplaintStatus, type Priority,
 } from "@/data/mock";
 import { useServerFn } from "@tanstack/react-start";
 import { askCampusAssistantFn } from "@/lib/campus.functions";
@@ -294,31 +294,92 @@ export function NoticeBoard({ canPost, initialItems, onCreate, onUpdate }: Notic
 }
 
 /* ---------------- Events ---------------- */
-export function EventsBoard({ manage }: { manage?: boolean }) {
-  const [items, setItems] = useState(seedEvents);
+type EventRecord = {
+  id: string;
+  title: string;
+  date: string;
+  time: string;
+  venue: string;
+  organizer: string;
+  description: string;
+  category: string;
+  seats: number;
+  registered: number;
+  remainingCapacity: number;
+  isRegistered: boolean;
+};
+type EventInput = Omit<EventRecord, "id" | "registered" | "remainingCapacity" | "isRegistered" | "category">;
+
+export function EventsBoard({
+  manage,
+  readOnly,
+  initialItems = [],
+  onToggle,
+  onCreate,
+}: {
+  manage?: boolean;
+  readOnly?: boolean;
+  initialItems?: EventRecord[];
+  onToggle?: (id: string, registered: boolean) => Promise<EventRecord>;
+  onCreate?: (data: EventInput) => Promise<EventRecord>;
+}) {
+  const [items, setItems] = useState<EventRecord[]>(initialItems);
   const [creating, setCreating] = useState(false);
-  function toggle(id: string) {
-    setItems((xs) => xs.map((e) => {
-      if (e.id !== id) return e;
-      const next = !e.isRegistered;
-      toast.success(next ? `Registered for ${e.title}` : "Registration cancelled");
-      return { ...e, isRegistered: next, registered: e.registered + (next ? 1 : -1) };
-    }));
+  const [saving, setSaving] = useState(false);
+  const [savingId, setSavingId] = useState<string | null>(null);
+  useEffect(() => setItems(initialItems), [initialItems]);
+
+  async function toggle(id: string) {
+    const current = items.find((event) => event.id === id);
+    if (!current || !onToggle) {
+      toast.error("Event registration is unavailable. Please refresh and try again.");
+      return;
+    }
+    setSavingId(id);
+    try {
+      const updated = await onToggle(id, !current.isRegistered);
+      setItems((xs) => xs.map((event) => (event.id === updated.id ? updated : event)));
+      toast.success(current.isRegistered ? "Registration cancelled" : `Registered for ${current.title}`);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Could not update event registration.");
+    } finally {
+      setSavingId(null);
+    }
   }
-  function create(fd: FormData) {
-    setItems((xs) => [...xs, {
-      id: crypto.randomUUID(), title: String(fd.get("title")), date: String(fd.get("date")), time: String(fd.get("time")),
-      venue: String(fd.get("venue")), organizer: String(fd.get("organizer")), description: String(fd.get("description")),
-      category: "General", seats: Number(fd.get("seats")) || 100, registered: 0, isRegistered: false,
-    }]);
-    setCreating(false); toast.success("Event created");
+
+  async function create(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!onCreate) {
+      toast.error("Event creation is unavailable. Please refresh and try again.");
+      return;
+    }
+    setSaving(true);
+    const form = new FormData(event.currentTarget);
+    try {
+      const created = await onCreate({
+        title: String(form.get("title")),
+        date: String(form.get("date")),
+        time: String(form.get("time")),
+        venue: String(form.get("venue")),
+        organizer: String(form.get("organizer")),
+        description: String(form.get("description")),
+        seats: Number(form.get("seats")) || 100,
+      });
+      setItems((xs) => [...xs, created].sort((a, b) => a.date.localeCompare(b.date)));
+      setCreating(false);
+      toast.success("Event created");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Could not create the event.");
+    } finally {
+      setSaving(false);
+    }
   }
   return (
     <>
-      {manage && <div className="mb-4 flex justify-end"><button className={btn} onClick={() => setCreating(true)}><Plus className="size-4" />New event</button></div>}
+      {manage && !readOnly && <div className="mb-4 flex justify-end"><button className={btn} onClick={() => setCreating(true)}><Plus className="size-4" />New event</button></div>}
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
         {items.map((e) => {
-          const full = e.registered >= e.seats && !e.isRegistered;
+          const full = e.remainingCapacity === 0;
           const d = new Date(e.date);
           return (
             <div key={e.id} className="glass rise flex flex-col rounded-xl p-5">
@@ -341,9 +402,9 @@ export function EventsBoard({ manage }: { manage?: boolean }) {
               <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-border"><div className="h-full bg-primary" style={{ width: `${Math.min(100, (e.registered / e.seats) * 100)}%` }} /></div>
               <div className="mt-4 flex items-center justify-between">
                 <StatusBadge value={e.isRegistered ? "Registered" : full ? "Full" : "Open"} />
-                {!manage && (
-                  <button disabled={full} onClick={() => toggle(e.id)} className={e.isRegistered ? btnGhost : btn}>
-                    {e.isRegistered ? "Cancel" : full ? "Full" : "Register"}
+                {!manage && !readOnly && (
+                  <button disabled={(full && !e.isRegistered) || savingId === e.id} onClick={() => void toggle(e.id)} className={e.isRegistered ? btnGhost : btn}>
+                    {savingId === e.id ? "Saving…" : e.isRegistered ? "Cancel" : full ? "Full" : "Register"}
                   </button>
                 )}
               </div>
@@ -354,13 +415,13 @@ export function EventsBoard({ manage }: { manage?: boolean }) {
       <Dialog open={creating} onOpenChange={setCreating}>
         <DialogContent>
           <DialogHeader><DialogTitle className="font-display">Create event</DialogTitle></DialogHeader>
-          <form action={create} className="flex flex-col gap-3">
+          <form onSubmit={create} className="flex flex-col gap-3">
             <input name="title" required placeholder="Event title" className={inputCls} />
             <div className="grid grid-cols-2 gap-3"><input name="date" type="date" required className={inputCls} /><input name="time" required placeholder="5:00 PM" className={inputCls} /></div>
             <div className="grid grid-cols-2 gap-3"><input name="venue" required placeholder="Venue" className={inputCls} /><input name="seats" type="number" placeholder="Seats" className={inputCls} /></div>
             <input name="organizer" required placeholder="Organizer" className={inputCls} />
             <textarea name="description" rows={3} placeholder="Description" className={inputCls} />
-            <button className={btn}>Create</button>
+            <button disabled={saving} className={btn}>{saving ? "Saving…" : "Create"}</button>
           </form>
         </DialogContent>
       </Dialog>
@@ -424,11 +485,13 @@ type ComplaintHistoryItem = {
   actorName: string;
 };
 type ComplaintItem = Complaint & {
+  assignedFacultyUserId?: string | null;
   resolutionInfo?: string;
   createdAt?: string;
   updatedAt?: string;
   history?: ComplaintHistoryItem[];
 };
+type ComplaintFacultyOption = { id: string; name: string; email: string };
 type ComplaintInput = Pick<
   Complaint,
   "title" | "category" | "description" | "location" | "priority"
@@ -442,9 +505,11 @@ type ComplaintsViewProps = {
     status: ComplaintStatus,
     resolutionInfo: string,
   ) => Promise<ComplaintItem>;
+  facultyOptions?: ComplaintFacultyOption[];
+  onAssign?: (complaintId: string, facultyUserId: string | null) => Promise<void>;
 };
 
-export function ComplaintsView({ mode, initialItems, onSubmit, onUpdate }: ComplaintsViewProps) {
+export function ComplaintsView({ mode, initialItems, onSubmit, onUpdate, facultyOptions = [], onAssign }: ComplaintsViewProps) {
   const [items, setItems] = useState<ComplaintItem[]>(
     initialItems ??
       (mode === "student"
@@ -454,6 +519,7 @@ export function ComplaintsView({ mode, initialItems, onSubmit, onUpdate }: Compl
   const [filter, setFilter] = useState<"All" | ComplaintStatus>("All");
   const [creating, setCreating] = useState(false);
   const [preview, setPreview] = useState<string | null>(null);
+  const [detail, setDetail] = useState<ComplaintItem | null>(null);
   const [drafts, setDrafts] = useState<
     Record<string, { status: ComplaintStatus; resolutionInfo: string }>
   >({});
@@ -539,6 +605,22 @@ export function ComplaintsView({ mode, initialItems, onSubmit, onUpdate }: Compl
     }
   }
 
+  async function assign(c: ComplaintItem, facultyUserId: string) {
+    if (!onAssign) return;
+    setSavingId(c.id);
+    try {
+      await onAssign(c.id, facultyUserId || null);
+      setItems((xs) => xs.map((item) => item.id === c.id
+        ? { ...item, assignedFacultyUserId: facultyUserId || null }
+        : item));
+      toast.success(facultyUserId ? `${c.id} assigned to Faculty` : `${c.id} unassigned`);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Could not assign the complaint.");
+    } finally {
+      setSavingId(null);
+    }
+  }
+
   return (
     <>
       <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
@@ -604,7 +686,8 @@ export function ComplaintsView({ mode, initialItems, onSubmit, onUpdate }: Compl
                 <th className="eyebrow p-3">Priority</th>
                 <th className="eyebrow p-3">Date</th>
                 <th className="eyebrow p-3">Status</th>
-                {mode === "admin" && <th className="eyebrow p-3">Resolution / action</th>}
+                {mode === "admin" && <th className="eyebrow p-3">Assigned Faculty</th>}
+                {(mode === "admin" || mode === "faculty") && <th className="eyebrow p-3">Resolution / action</th>}
               </tr>
             </thead>
             <tbody>
@@ -612,7 +695,11 @@ export function ComplaintsView({ mode, initialItems, onSubmit, onUpdate }: Compl
                 <tr key={c.id} className="border-b last:border-0 hover:bg-card/60">
                   <td className="p-3 font-mono text-xs">{c.id}</td>
                   <td className="p-3">
-                    <div className="font-semibold">{c.title}</div>
+                    {mode === "faculty" ? (
+                      <button type="button" onClick={() => setDetail(c)} className="text-left font-semibold text-primary underline-offset-2 hover:underline" aria-label={`Open complaint ${c.id}`}>
+                        {c.title}
+                      </button>
+                    ) : <div className="font-semibold">{c.title}</div>}
                     <div className="text-xs text-muted-foreground">
                       {c.category} · {c.location}
                     </div>
@@ -623,7 +710,7 @@ export function ComplaintsView({ mode, initialItems, onSubmit, onUpdate }: Compl
                   </td>
                   <td className="p-3 font-mono text-xs text-muted-foreground">{fmtDate(c.date)}</td>
                   <td className="p-3">
-                    {mode === "admin" ? (
+                    {mode === "admin" || mode === "faculty" ? (
                       <select
                         value={drafts[c.id]?.status ?? c.status}
                         onChange={(e) =>
@@ -646,6 +733,22 @@ export function ComplaintsView({ mode, initialItems, onSubmit, onUpdate }: Compl
                     )}
                   </td>
                   {mode === "admin" && (
+                    <td className="p-3">
+                      <select
+                        aria-label={`Assign complaint ${c.id} to Faculty`}
+                        value={c.assignedFacultyUserId ?? ""}
+                        disabled={savingId === c.id}
+                        onChange={(e) => void assign(c, e.target.value)}
+                        className="max-w-[210px] rounded-md border bg-card px-2 py-1 text-xs"
+                      >
+                        <option value="">Unassigned</option>
+                        {facultyOptions.map((faculty) => (
+                          <option key={faculty.id} value={faculty.id}>{faculty.name} · {faculty.email}</option>
+                        ))}
+                      </select>
+                    </td>
+                  )}
+                  {(mode === "admin" || mode === "faculty") && (
                     <td className="p-3">
                       <div className="flex min-w-[280px] gap-2">
                         <input
@@ -685,6 +788,28 @@ export function ComplaintsView({ mode, initialItems, onSubmit, onUpdate }: Compl
           )}
         </div>
       )}
+      <Dialog open={detail !== null} onOpenChange={(open) => { if (!open) setDetail(null); }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle className="font-display">{detail?.title ?? "Complaint details"}</DialogTitle>
+            <DialogDescription>{detail ? `${detail.id} · ${detail.category} · ${detail.location}` : ""}</DialogDescription>
+          </DialogHeader>
+          {detail && <div className="space-y-3 text-sm">
+            <div className="flex flex-wrap gap-2"><StatusBadge value={detail.status} /><StatusBadge value={detail.priority} /></div>
+            <p className="whitespace-pre-wrap">{detail.description}</p>
+            {detail.resolutionInfo && <p className="rounded-lg bg-success-soft p-3 text-success"><strong>Update / resolution:</strong> {detail.resolutionInfo}</p>}
+            <div className="text-xs text-muted-foreground">Reported by {detail.by} · {fmtDate(detail.date)}</div>
+            {detail.history && detail.history.length > 0 && <div className="border-t pt-3">
+              <h3 className="mb-2 font-semibold">Status history</h3>
+              <div className="space-y-2">{detail.history.map((entry, index) => <div key={`${entry.createdAt}-${index}`} className="text-xs text-muted-foreground">
+                <div className="font-medium text-foreground">{entry.fromStatus ? `${entry.fromStatus} → ` : ""}{entry.toStatus}</div>
+                <div>{entry.actorName} · {fmtDate(entry.createdAt.slice(0, 10))} {entry.createdAt.slice(11, 16)}</div>
+                {entry.resolutionInfo && <div>{entry.resolutionInfo}</div>}
+              </div>)}</div>
+            </div>}
+          </div>}
+        </DialogContent>
+      </Dialog>
       <Dialog open={creating} onOpenChange={setCreating}>
         <DialogContent>
           <DialogHeader>
@@ -761,20 +886,82 @@ export function ComplaintsView({ mode, initialItems, onSubmit, onUpdate }: Compl
 }
 
 /* ---------------- Lost & Found ---------------- */
-export function LostFoundView({ admin }: { admin?: boolean }) {
-  const [items, setItems] = useState<LostItem[]>(seedLost);
+type LostFoundRecord = {
+  id: string;
+  kind: "Lost" | "Found";
+  item: string;
+  category: string;
+  description: string;
+  location: string;
+  date: string;
+  status: "Open" | "Claimed";
+};
+type LostFoundInput = Omit<LostFoundRecord, "id" | "date" | "status">;
+
+export function LostFoundView({
+  admin,
+  initialItems = [],
+  onReport,
+  onClaim,
+}: {
+  admin?: boolean;
+  initialItems?: LostFoundRecord[];
+  onReport?: (data: LostFoundInput) => Promise<LostFoundRecord>;
+  onClaim?: (id: string) => Promise<LostFoundRecord>;
+}) {
+  const [items, setItems] = useState<LostFoundRecord[]>(initialItems);
   const [q, setQ] = useState("");
   const [kind, setKind] = useState<"All" | "Lost" | "Found">("All");
   const [reporting, setReporting] = useState<null | "Lost" | "Found">(null);
-  const [detail, setDetail] = useState<LostItem | null>(null);
+  const [detail, setDetail] = useState<LostFoundRecord | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [claiming, setClaiming] = useState(false);
+  useEffect(() => setItems(initialItems), [initialItems]);
   const filtered = useMemo(() => items.filter((i) => (kind === "All" || i.kind === kind) && (i.item + i.location + i.category).toLowerCase().includes(q.toLowerCase())), [items, q, kind]);
 
-  function report(fd: FormData) {
-    if (!reporting) return;
-    setItems((xs) => [{ id: crypto.randomUUID(), kind: reporting, item: String(fd.get("item")), category: String(fd.get("category")), description: String(fd.get("description")), location: String(fd.get("location")), date: new Date().toISOString().slice(0, 10), reporter: "Ananya Sharma", contact: "ananya.sharma@campusx.edu", status: "Open" }, ...xs]);
-    toast.success(`${reporting} item reported`); setReporting(null);
+  async function report(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!reporting || !onReport) {
+      toast.error("Reporting is unavailable. Please refresh and try again.");
+      return;
+    }
+    setSaving(true);
+    const form = new FormData(event.currentTarget);
+    try {
+      const created = await onReport({
+        kind: reporting,
+        item: String(form.get("item")),
+        category: String(form.get("category")),
+        description: String(form.get("description")),
+        location: String(form.get("location")),
+      });
+      setItems((xs) => [created, ...xs]);
+      setReporting(null);
+      toast.success(`${created.kind} item reported`);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Could not save the item report.");
+    } finally {
+      setSaving(false);
+    }
   }
-  function claim(id: string) { setItems((xs) => xs.map((x) => (x.id === id ? { ...x, status: "Claimed" } : x))); setDetail(null); toast.success("Marked as claimed"); }
+
+  async function claim(id: string) {
+    if (!onClaim) {
+      toast.error("Claiming is unavailable. Please refresh and try again.");
+      return;
+    }
+    setClaiming(true);
+    try {
+      const updated = await onClaim(id);
+      setItems((xs) => xs.map((item) => (item.id === updated.id ? updated : item)));
+      setDetail(null);
+      toast.success("Marked as claimed");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Could not claim this item.");
+    } finally {
+      setClaiming(false);
+    }
+  }
 
   return (
     <>
@@ -799,10 +986,8 @@ export function LostFoundView({ admin }: { admin?: boolean }) {
           {detail && (<>
             <DialogHeader><div className="flex gap-2"><StatusBadge value={detail.kind} /><StatusBadge value={detail.status} /></div><DialogTitle className="font-display text-xl">{detail.item}</DialogTitle><DialogDescription>{detail.location} · {fmtDate(detail.date)}</DialogDescription></DialogHeader>
             <p className="text-sm">{detail.description}</p>
-            <div className="rounded-lg bg-muted p-3 text-sm"><div className="eyebrow">Reported by</div>{detail.reporter} · {detail.contact}</div>
             <div className="flex gap-2">
-              <a href={`mailto:${detail.contact}?subject=${encodeURIComponent("CampusX: " + detail.item)}`} className={btn}>Contact {detail.kind === "Found" ? "finder" : "owner"}</a>
-              {detail.status === "Open" && <button className={btnGhost} onClick={() => claim(detail.id)}>Mark claimed</button>}
+              {detail.kind === "Found" && detail.status === "Open" && <button disabled={claiming} className={btnGhost} onClick={() => void claim(detail.id)}>{claiming ? "Saving…" : "Mark claimed"}</button>}
             </div>
           </>)}
         </DialogContent>
@@ -810,14 +995,14 @@ export function LostFoundView({ admin }: { admin?: boolean }) {
       <Dialog open={!!reporting} onOpenChange={(o) => !o && setReporting(null)}>
         <DialogContent>
           <DialogHeader><DialogTitle className="font-display">Report {reporting?.toLowerCase()} item</DialogTitle></DialogHeader>
-          <form action={report} className="flex flex-col gap-3">
+          <form onSubmit={report} className="flex flex-col gap-3">
             <input name="item" required placeholder="Item name" className={inputCls} />
             <div className="grid grid-cols-2 gap-3">
               <select name="category" className={inputCls}>{["Electronics", "Documents", "Personal", "Stationery", "Accessories", "Other"].map((c) => <option key={c}>{c}</option>)}</select>
               <input name="location" required placeholder="Where?" className={inputCls} />
             </div>
             <textarea name="description" rows={3} placeholder="Distinguishing details" className={inputCls} />
-            <button className={btn}>Submit report</button>
+            <button disabled={saving} className={btn}>{saving ? "Saving…" : "Submit report"}</button>
           </form>
         </DialogContent>
       </Dialog>
@@ -833,9 +1018,9 @@ function Rich({ text }: { text: string }) {
   return <>{text.split("\n").map((line, i) => <p key={i}>{line.split(/(\*\*[^*]+\*\*)/).map((p, j) => p.startsWith("**") ? <strong key={j}>{p.slice(2, -2)}</strong> : p)}</p>)}</>;
 }
 
-export function Assistant() {
+export function Assistant({ studentName = "there" }: { studentName?: string }) {
   const askCampusAssistant = useServerFn(askCampusAssistantFn);
-  const [msgs, setMsgs] = useState<Msg[]>([{ role: "bot", text: "Hi Ananya — I'm your Campus Intelligence Assistant. Ask me about classes, attendance, notices, deadlines or campus services." }]);
+  const [msgs, setMsgs] = useState<Msg[]>([{ role: "bot", text: `Hi ${studentName} — I'm your Campus Intelligence Assistant. Ask me about classes, attendance, notices, deadlines or campus services.` }]);
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
   const end = useRef<HTMLDivElement>(null);

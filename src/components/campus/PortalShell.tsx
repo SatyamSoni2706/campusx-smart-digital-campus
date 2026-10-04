@@ -28,11 +28,13 @@ export function PortalShell({
   nav,
   user,
   notifyTo,
+  notificationCount,
 }: {
   role: string;
   nav: NavItem[];
   user: { name: string; initials: string; sub: string };
   notifyTo?: NonNullable<LinkProps["to"]>;
+  notificationCount?: number;
 }) {
   const [open, setOpen] = useState(false);
   const logout = useServerFn(logoutFn);
@@ -130,12 +132,17 @@ export function PortalShell({
                 <Link
                   to={notifyTo}
                   className="glass relative grid size-9 place-items-center rounded-lg"
-                  aria-label="Notifications"
+                  aria-label={notificationCount === undefined ? "Notifications" : `Notifications, ${notificationCount} unread`}
                 >
                   <Bell className="size-4" />
-                  <span className="absolute -right-1 -top-1 grid size-4 place-items-center rounded-full bg-danger text-[9px] font-bold text-primary-foreground">
-                    3
-                  </span>
+                  {(notificationCount === undefined || notificationCount > 0) && (
+                    <span className={cn(
+                      "absolute -right-1 -top-1 grid place-items-center rounded-full bg-danger text-[9px] font-bold text-primary-foreground",
+                      notificationCount === undefined ? "size-4" : "min-h-4 min-w-4 px-1",
+                    )}>
+                      {notificationCount === undefined ? 3 : notificationCount > 99 ? "99+" : notificationCount}
+                    </span>
+                  )}
                 </Link>
               ) : (
                 <span className="glass grid size-9 place-items-center rounded-lg">

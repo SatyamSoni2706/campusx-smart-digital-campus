@@ -3,16 +3,18 @@
   "private": true,
   "sideEffects": false,
   "type": "module",
-  "engines": {
-    "node": ">=22.13.0"
-  },
   "scripts": {
     "dev": "vite dev",
     "build": "vite build",
+    "start": "node .output/server/index.mjs",
+    "demo:provision": "node --experimental-strip-types scripts/provision-demo-accounts.mjs",
     "build:dev": "vite build --mode development",
     "preview": "vite preview",
     "lint": "eslint .",
     "format": "prettier --write ."
+  },
+  "engines": {
+    "node": ">=22.5.0"
   },
   "overrides": {
     "rolldown": "1.2.1"
